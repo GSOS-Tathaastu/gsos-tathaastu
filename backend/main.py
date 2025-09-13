@@ -166,3 +166,26 @@ def download_index(_=Depends(require_key)):
     if not os.path.exists(DATA_PATH):
         return JSONResponse({"ok": False, "error": "index not found"}, status_code=404)
     return FileResponse(DATA_PATH, media_type="application/json", filename="gsos_chunks.json")
+
+from fastapi import UploadFile, File
+import shutil
+
+@app.post("/admin/upload")
+def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
+    """
+    Upload a single .docx/.pdf/.md/.txt/.html file to backend/docs and reingest.
+    """
+    allowed = {".docx", ".pdf", ".md", ".txt", ".html", ".htm"}
+    name = file.filename or "uploaded"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"unsupported_extension:{ext}")
+
+    os.makedirs(DOCS_DIR, exist_ok=True)
+    dest_path = os.path.join(DOCS_DIR, name)
+
+    with open(dest_path, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    payload = ingest_docs_to_json()  # full reindex (simple & reliable)
+    return {"ok": True, "saved": name, "meta": payload["meta"]}

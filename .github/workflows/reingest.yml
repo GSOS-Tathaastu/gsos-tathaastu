@@ -1,0 +1,23 @@
+name: Reingest GSOS Docs
+
+on:
+  push:
+    paths:
+      - "backend/docs/**"
+      - "backend/text_utils.py"
+      - "backend/search.py"
+
+jobs:
+  reingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backend reingest
+        env:
+          REINGEST_URL: ${{ secrets.BACKEND_REINGEST_URL }}
+          API_KEY: ${{ secrets.BACKEND_API_KEY }}
+        run: |
+          if [ -z "$REINGEST_URL" ] || [ -z "$API_KEY" ]; then
+            echo "Secrets BACKEND_REINGEST_URL and BACKEND_API_KEY must be set."
+            exit 1
+          fi
+          curl -X POST -H "x-api-key: $API_KEY" "$REINGEST_URL"
