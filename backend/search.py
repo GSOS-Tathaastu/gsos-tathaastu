@@ -61,7 +61,8 @@ def _embed_local(chunks: List[str]) -> List[List[float]]:
 
 def _embed_openai(chunks: List[str], model: str) -> List[List[float]]:
     from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+   client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+rsp = client.embeddings.create(model=model, input=chunks)
 
     # OpenAI supports batching
     rsp = client.embeddings.create(model=model, input=chunks)
