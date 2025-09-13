@@ -6,21 +6,30 @@ from dotenv import load_dotenv
 from typing import Optional
 import os, json, shutil
 
+# -------------------------
+# Load env & constants
+# -------------------------
+load_dotenv()
+
+API_KEY       = os.getenv("BACKEND_API_KEY", "")
+ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
+OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
+
+BASE_DIR  = os.path.dirname(__file__)
+DATA_PATH = os.path.join(BASE_DIR, "data", "gsos_chunks.json")
+DOCS_DIR  = os.path.join(BASE_DIR, "docs")
+
+# -------------------------
 # Local modules
+# -------------------------
 from schemas import GenerateQuery, GenerateResponse
 from generation import generate_with_openai, _fallback_questions
 from search import search_chunks, ingest_docs_to_json
 
 # -------------------------
-# App / Config
+# App
 # -------------------------
-load_dotenv()
-
-API_KEY = os.getenv("BACKEND_API_KEY", "")
-ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
-OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
-
-app = FastAPI(title="GSOS Survey & RAG API", version="1.3.1")
+app = FastAPI(title="GSOS Survey & RAG API", version="1.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,11 +43,6 @@ def require_key(x_api_key: str = Header(default="")):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
-
-# Paths
-BASE_DIR   = os.path.dirname(__file__)
-DATA_PATH  = os.path.join(BASE_DIR, "data", "gsos_chunks.json")
-DOCS_DIR   = os.path.join(BASE_DIR, "docs")
 
 # -------------------------
 # Health
@@ -66,29 +70,26 @@ def generate(
     except Exception as e:
         logger.exception(f"OpenAI generation failed; serving fallback. Error: {e}")
         questions = _fallback_questions(q)
-
     return {"role": q.role, "questions": [qq.model_dump() for qq in questions]}
 
 # -------------------------
-# RAG: Ask over GSOS docs
+# RAG: Ask
 # -------------------------
 @app.post("/ask")
 def ask(payload: dict = Body(...), _=Depends(require_key)):
     query = (payload.get("query") or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query_required")
-
     top_k = int(payload.get("top_k") or 5)
-    results, meta = search_chunks(query, top_k=top_k)
 
+    results, meta = search_chunks(query, top_k=top_k)
     answer = None
+
     if OPENAI_PRESENT and results:
         try:
             from openai import OpenAI
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            ctx = "\n\n".join(
-                [f"[{r['source_path']}#{r['chunk_index']}] {r['text']}" for r in results]
-            )
+            ctx = "\n\n".join([f"[{r['source_path']}#{r['chunk_index']}] {r['text']}" for r in results])
             prompt = (
                 "Answer the question using only the provided context.\n\n"
                 f"Question: {query}\n\nContext:\n{ctx}\n\nAnswer:"
@@ -109,24 +110,24 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
     return {"ok": True, "meta": meta.get("meta", {}), "results": results, "answer": answer}
 
 # -------------------------
-# Admin: List docs
+# Admin: list docs
 # -------------------------
 @app.get("/admin/list-docs")
 def list_docs(_=Depends(require_key)):
     out = []
     for root, _, files in os.walk(DOCS_DIR):
         for fn in files:
-            path = os.path.join(root, fn)
-            rel = os.path.relpath(path, DOCS_DIR)
+            p = os.path.join(root, fn)
+            rel = os.path.relpath(p, DOCS_DIR)
             try:
-                size = os.path.getsize(path)
+                size = os.path.getsize(p)
             except Exception:
                 size = -1
             out.append({"path": rel, "size": size})
     return {"ok": True, "docs_dir": DOCS_DIR, "files": out}
 
 # -------------------------
-# Admin: Reingest (now forwards only_file + force_openai)
+# Admin: reingest (forwards only_file + force_openai)
 # -------------------------
 @app.post("/admin/reingest")
 def reingest(
@@ -136,18 +137,15 @@ def reingest(
 ):
     """
     Rebuild JSON index from docs/.
-    Query params:
-      - only_file: reindex just one filename (others preserved)
+    Params:
+      - only_file: reindex just one filename (preserve others)
       - force_openai=true: require OpenAI embeddings (no silent local fallback)
     """
-    payload = ingest_docs_to_json(
-        only_file=only_file,
-        force_openai=force_openai
-    )
+    payload = ingest_docs_to_json(only_file=only_file, force_openai=force_openai)
     return {"ok": True, "meta": payload["meta"]}
 
 # -------------------------
-# Admin: Index meta & download
+# Admin: index meta & download
 # -------------------------
 @app.get("/admin/index-meta")
 def index_meta(_=Depends(require_key)):
@@ -164,7 +162,7 @@ def download_index(_=Depends(require_key)):
     return FileResponse(DATA_PATH, media_type="application/json", filename="gsos_chunks.json")
 
 # -------------------------
-# Admin: Upload doc (+ auto reindex all)
+# Admin: upload (auto reindex all)
 # -------------------------
 @app.post("/admin/upload")
 def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
@@ -175,8 +173,8 @@ def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
         raise HTTPException(status_code=400, detail=f"unsupported_extension:{ext}")
 
     os.makedirs(DOCS_DIR, exist_ok=True)
-    dest_path = os.path.join(DOCS_DIR, name)
-    with open(dest_path, "wb") as out:
+    dest = os.path.join(DOCS_DIR, name)
+    with open(dest, "wb") as out:
         shutil.copyfileobj(file.file, out)
 
     payload = ingest_docs_to_json()
