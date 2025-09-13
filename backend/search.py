@@ -136,20 +136,45 @@ def ingest_docs_to_json(only_file: str = None, force_openai: bool = False) -> Di
 # Search
 # -------------------------
 def search_chunks(query: str, top_k: int = 5) -> Tuple[List[Dict], Dict]:
+    """
+    Return top_k most similar chunks to query, embedding the query with
+    the SAME backend as the stored index (OpenAI vs local).
+    """
     if not os.path.exists(DATA_PATH):
-        return [], {"meta": {"created_at": 0, "count": 0}}
+        return [], {"meta": {"created_at": 0, "count": 0, "embed_backend": "none"}}
 
     with open(DATA_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    records = data.get("records", [])
+    meta = data.get("meta", {})
+    if not records:
+        return [], data
+
+    # Choose query embedding backend to match the index
+    idx_backend = meta.get("embed_backend", "local")
+    if idx_backend == "openai":
+        q_emb = _embed_openai([query], model=meta.get("openai_model", OPENAI_EMBED_MODEL))[0]
+    else:
+        q_emb = _embed_local([query])[0]
+
+    # Cosine similarity (using numpy)
     from numpy import dot
     from numpy.linalg import norm
-    q_emb, _ = _embed_texts([query], force_openai=False)
-    q_emb = q_emb[0]
+
+    def cos(a, b):
+        return float(dot(a, b) / (norm(a) * norm(b) + 1e-8))
 
     scored = []
-    for r in data["records"]:
-        score = dot(q_emb, r["embedding"]) / (norm(q_emb) * norm(r["embedding"]))
-        scored.append((score, r))
+    for r in records:
+        emb = r.get("embedding")
+        # Skip any malformed rows
+        if not isinstance(emb, list):
+            continue
+        if len(emb) != len(q_emb):
+            # If you ever had a mixed index (old + new), skip mismatched dims
+            continue
+        scored.append((cos(q_emb, emb), r))
+
     scored.sort(key=lambda x: x[0], reverse=True)
     return [r for _, r in scored[:top_k]], data
