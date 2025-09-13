@@ -11,12 +11,12 @@ import os, json, shutil
 # -------------------------
 load_dotenv()
 
-API_KEY       = os.getenv("BACKEND_API_KEY", "")
-ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
+API_KEY        = os.getenv("BACKEND_API_KEY", "")
+ALLOW_ORIGIN   = os.getenv("ALLOW_ORIGIN", "*")
 OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
 BASE_DIR  = os.path.dirname(__file__)
-DATA_PATH = os.path.join(BASE_DIR, "data", "gsos_chunks.json")
+DATA_PATH = os.path.join(BASE_DIR, "data", "gsos_chunks.json")  # <- must match search.DATA_PATH
 DOCS_DIR  = os.path.join(BASE_DIR, "docs")
 
 # -------------------------
@@ -24,16 +24,19 @@ DOCS_DIR  = os.path.join(BASE_DIR, "docs")
 # -------------------------
 from schemas import GenerateQuery, GenerateResponse
 from generation import generate_with_openai, _fallback_questions
-from search import search_chunks, ingest_docs_to_json
+from search import search_chunks, ingest_docs_to_json  # search.DATA_PATH uses same path
 
 # -------------------------
 # App
 # -------------------------
-app = FastAPI(title="GSOS Survey & RAG API", version="1.4.0")
+app = FastAPI(title="GSOS Survey & RAG API", version="1.4.1")
+
+# allow_origins expects a list; support comma-separated env or single value
+allow_origins = [o.strip() for o in ALLOW_ORIGIN.split(",")] if ALLOW_ORIGIN else ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOW_ORIGINS,
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,10 +66,7 @@ def generate(
 ):
     q = GenerateQuery(role=role, count=count, seed=seed)
     try:
-        if OPENAI_PRESENT:
-            questions = generate_with_openai(q)
-        else:
-            questions = _fallback_questions(q)
+        questions = generate_with_openai(q) if OPENAI_PRESENT else _fallback_questions(q)
     except Exception as e:
         logger.exception(f"OpenAI generation failed; serving fallback. Error: {e}")
         questions = _fallback_questions(q)
@@ -82,14 +82,16 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
         raise HTTPException(status_code=400, detail="query_required")
     top_k = int(payload.get("top_k") or 5)
 
-    results, meta = search_chunks(query, top_k=top_k)
-    answer = None
+    results, idx = search_chunks(query, top_k=top_k)
 
+    answer = None
     if OPENAI_PRESENT and results:
         try:
             from openai import OpenAI
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            ctx = "\n\n".join([f"[{r['source_path']}#{r['chunk_index']}] {r['text']}" for r in results])
+            ctx = "\n\n".join(
+                f"[{r['source_path']}#{r['chunk_index']}] {r['text']}" for r in results
+            )
             prompt = (
                 "Answer the question using only the provided context.\n\n"
                 f"Question: {query}\n\nContext:\n{ctx}\n\nAnswer:"
@@ -107,7 +109,7 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
             logger.exception(f"OpenAI answer failed: {e}")
             answer = None
 
-    return {"ok": True, "meta": meta.get("meta", {}), "results": results, "answer": answer}
+    return {"ok": True, "meta": idx.get("meta", {}), "results": results, "answer": answer}
 
 # -------------------------
 # Admin: list docs
@@ -137,8 +139,7 @@ def reingest(
 ):
     """
     Rebuild JSON index from docs/.
-    Params:
-      - only_file: reindex just one filename (preserve others)
+      - only_file: reindex just one filename (preserves others in same index file)
       - force_openai=true: require OpenAI embeddings (no silent local fallback)
     """
     payload = ingest_docs_to_json(only_file=only_file, force_openai=force_openai)

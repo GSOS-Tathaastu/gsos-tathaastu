@@ -17,3 +17,8 @@ __pycache__/
 # Misc
 .DS_Store
 Thumbs.db
+
+# Keep backend data + docs in repo (do NOT ignore these)
+!backend/data/
+!backend/data/gsos_chunks.json
+!backend/docs/

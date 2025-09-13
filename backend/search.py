@@ -88,34 +88,106 @@ def _embed_texts(texts: List[str], force_openai: bool = False) -> Tuple[List[Lis
     return _embed_local(texts), "local"
 
 # -------------------------
-# Ingest pipeline
+# Ingest pipeline (drop-in)
 # -------------------------
-def ingest_docs_to_json(only_file: str = None, force_openai: bool = False) -> Dict:
-    import docx, datetime
+def ingest_docs_to_json(only_file: str | None = None, force_openai: bool = False) -> Dict:
+    """
+    Scans DOCS_DIR for files, chunks them, embeds with OpenAI (or local fallback),
+    and writes a single JSON index to DATA_PATH.
 
-    records = []
-    for fn in os.listdir(DOCS_DIR):
-        if only_file and fn != only_file:
+    Supported: .docx .pdf .txt .md .html .htm
+    """
+    import docx
+    from PyPDF2 import PdfReader
+
+    # 1) Gather files
+    supported_ext = {".docx", ".pdf", ".txt", ".md", ".html", ".htm"}
+    files: list[str] = []
+    for root, _, fnames in os.walk(DOCS_DIR):
+        for fn in fnames:
+            if only_file and fn != only_file:
+                continue
+            if os.path.splitext(fn)[1].lower() in supported_ext:
+                files.append(os.path.join(root, fn))
+
+    if not files:
+        logger.warning("No supported files found to ingest.")
+        payload = {
+            "meta": {
+                "created_at": int(time.time()),
+                "count": 0,
+                "embed_backend": "none",
+                "openai_model": None,
+                "only_file": only_file,
+            },
+            "records": [],
+        }
+        os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
+        with open(DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return payload
+
+    # 2) Extract + chunk
+    records: list[Dict] = []
+    for abs_path in files:
+        fn = os.path.basename(abs_path)
+        ext = os.path.splitext(fn)[1].lower()
+        text = ""
+
+        try:
+            if ext == ".docx":
+                doc = docx.Document(abs_path)
+                text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            elif ext == ".pdf":
+                reader = PdfReader(abs_path)
+                parts = []
+                for page in reader.pages:
+                    try:
+                        parts.append(page.extract_text() or "")
+                    except Exception:
+                        parts.append("")
+                text = "\n".join(parts)
+            elif ext in {".txt", ".md", ".html", ".htm"}:
+                with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read {fn}: {e}")
             continue
-        path = os.path.join(DOCS_DIR, fn)
-        if fn.lower().endswith(".docx"):
-            doc = docx.Document(path)
-            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        elif fn.lower().endswith(".txt"):
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read()
-        else:
+
+        if not text or not text.strip():
+            logger.warning(f"Empty or unreadable content in {fn}; skipping.")
             continue
-        chunks = _split_text(text)
-        for i, ch in enumerate(chunks):
+
+        for i, chunk in enumerate(_split_text(text)):
+            ch = chunk.strip()
+            if not ch:
+                continue
             records.append({"source_path": fn, "chunk_index": i, "text": ch})
 
+    # 3) Embed
     texts = [r["text"] for r in records]
-    embeddings, backend = _embed_texts(texts, force_openai=force_openai)
+    if not texts:
+        logger.warning("No chunks produced; writing empty index.")
+        payload = {
+            "meta": {
+                "created_at": int(time.time()),
+                "count": 0,
+                "embed_backend": "none",
+                "openai_model": None,
+                "only_file": only_file,
+            },
+            "records": [],
+        }
+        os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
+        with open(DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return payload
 
+    embeddings, backend = _embed_texts(texts, force_openai=force_openai)
     for r, emb in zip(records, embeddings):
         r["embedding"] = emb
 
+    # 4) Save index
     payload = {
         "meta": {
             "created_at": int(time.time()),
@@ -129,6 +201,7 @@ def ingest_docs_to_json(only_file: str = None, force_openai: bool = False) -> Di
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
     with open(DATA_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
     logger.info(f"Ingested {len(records)} chunks, backend={backend}")
     return payload
 
