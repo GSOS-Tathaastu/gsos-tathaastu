@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Depends, Header, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from dotenv import load_dotenv
-import os
+import os, json
 
 # Local modules (absolute imports)
 from schemas import GenerateQuery, GenerateResponse
@@ -10,12 +11,12 @@ from generation import generate_with_openai, _fallback_questions
 from search import search_chunks, ingest_docs_to_json
 
 # -------------------------
-# App / Config
+# App / Config (must be before using @app or Depends)
 # -------------------------
 load_dotenv()
 
-API_KEY = os.getenv("BACKEND_API_KEY", "")  # set in Railway
-ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]  # e.g., "*", or "https://your-frontend"
+API_KEY = os.getenv("BACKEND_API_KEY", "")          # set in Railway
+ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]    # e.g., "*", or "https://your-frontend"
 OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI(title="GSOS Survey & RAG API", version="1.2.0")
@@ -28,13 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def require_key(x_api_key: str = Header(default="")):
     """Simple header-based auth. Set BACKEND_API_KEY in env and send x-api-key header."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
 
+# Paths to data/docs
+DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "gsos_chunks.json")
+DOCS_DIR  = os.path.join(os.path.dirname(__file__), "docs")
 
 # -------------------------
 # Health
@@ -42,7 +45,6 @@ def require_key(x_api_key: str = Header(default="")):
 @app.get("/health")
 def health():
     return {"ok": True}
-
 
 # -------------------------
 # Survey Generation
@@ -57,8 +59,7 @@ def generate(
     """
     Generates a role-aware readiness survey.
     If OPENAI_API_KEY is set, questions are grounded in GSOS chunks via OpenAI.
-    If OpenAI fails for any reason, we fall back to deterministic local questions
-    to keep the API reliable.
+    If OpenAI fails, we serve deterministic local questions to stay reliable.
     """
     q = GenerateQuery(role=role, count=count, seed=seed)
     try:
@@ -72,7 +73,6 @@ def generate(
 
     logger.info(f"Generated {len(questions)} questions for role={role}")
     return {"role": q.role, "questions": [qq.model_dump() for qq in questions]}
-
 
 # -------------------------
 # RAG: Ask over GSOS docs
@@ -118,25 +118,9 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
 
     return {"ok": True, "meta": meta.get("meta", {}), "results": results, "answer": answer}
 
-
-# -------------------------
-# Admin: Reingest docs -> JSON
-# -------------------------
-@app.post("/admin/reingest")
-def reingest(_=Depends(require_key)):
-    """
-    Re-chunk all files in backend/docs into backend/data/gsos_chunks.json
-    Supports: .pdf .md .txt .html .htm .docx
-    """
-    payload = ingest_docs_to_json()
-    return {"ok": True, "meta": payload["meta"]}
-
-
 # -------------------------
 # Admin: List docs seen by container (debug)
 # -------------------------
-DOCS_DIR = os.path.join(os.path.dirname(__file__), "docs")
-
 @app.get("/admin/list-docs")
 def list_docs(_=Depends(require_key)):
     """
@@ -153,3 +137,32 @@ def list_docs(_=Depends(require_key)):
                 size = -1
             out.append({"path": rel, "size": size})
     return {"ok": True, "docs_dir": DOCS_DIR, "files": out}
+
+# -------------------------
+# Admin: Reingest docs -> JSON
+# -------------------------
+@app.post("/admin/reingest")
+def reingest(_=Depends(require_key)):
+    """
+    Re-chunk all files in backend/docs into backend/data/gsos_chunks.json
+    Supports: .pdf .md .txt .html .htm .docx
+    """
+    payload = ingest_docs_to_json()
+    return {"ok": True, "meta": payload["meta"]}
+
+# -------------------------
+# Admin: index meta & download
+# -------------------------
+@app.get("/admin/index-meta")
+def index_meta(_=Depends(require_key)):
+    if not os.path.exists(DATA_PATH):
+        return {"ok": True, "meta": {"created_at": 0, "count": 0, "embed_backend": "none"}}
+    with open(DATA_PATH, "r", encoding="utf-8") as f:
+        idx = json.load(f)
+    return {"ok": True, "meta": idx.get("meta", {"created_at": 0, "count": 0, "embed_backend": "unknown"})}
+
+@app.get("/admin/download-index")
+def download_index(_=Depends(require_key)):
+    if not os.path.exists(DATA_PATH):
+        return JSONResponse({"ok": False, "error": "index not found"}, status_code=404)
+    return FileResponse(DATA_PATH, media_type="application/json", filename="gsos_chunks.json")
