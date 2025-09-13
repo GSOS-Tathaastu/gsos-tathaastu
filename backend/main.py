@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from dotenv import load_dotenv
 import os
-from .schemas import GenerateQuery, GenerateResponse
-from .generation import generate_with_openai, _fallback_questions
+from schemas import GenerateQuery, GenerateResponse
+from generation import generate_with_openai, _fallback_questions
 
 load_dotenv()
 

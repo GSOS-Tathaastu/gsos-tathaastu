@@ -1,6 +1,6 @@
 import random, hashlib, os, json
 from typing import List
-from .schemas import Question, GenerateQuery
+from schemas import Question, GenerateQuery
 from openai import OpenAI
 
 def _fallback_questions(q: GenerateQuery) -> List[Question]:
