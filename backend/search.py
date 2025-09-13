@@ -1,121 +1,159 @@
-import os, json, time, math, hashlib
-from typing import List, Dict, Any, Tuple
+# backend/search.py
+import os, json, time, math
+from pathlib import Path
+from typing import List, Tuple, Dict, Any, Optional
+
 from text_utils import read_text_any, chunk_text
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "gsos_chunks.json")
-DOCS_DIR  = os.path.join(os.path.dirname(__file__), "docs")
+# ---- Config via env ----
+EMBED_BACKEND       = os.getenv("EMBED_BACKEND", "openai").lower()  # "openai" | "local"
+OPENAI_EMBED_MODEL  = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+EMBED_BATCH_SIZE    = int(os.getenv("EMBED_BATCH_SIZE", "32"))
 
-# Controls: set EMBED_BACKEND=local in Railway to force local embeddings
-EMBED_BACKEND = (os.getenv("EMBED_BACKEND") or "").lower().strip() or "auto"
-MAX_CHARS_PER_CHUNK = int(os.getenv("MAX_CHARS_PER_CHUNK") or "1200")
-BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE") or "64")
+BASE_DIR   = Path(__file__).parent
+DOCS_DIR   = BASE_DIR / "docs"
+DATA_DIR   = BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+INDEX_PATH = DATA_DIR / "gsos_chunks.json"
 
-def _has_openai() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY"))
-
-def _prepare_texts(texts: List[str]) -> List[str]:
-    return [(t if len(t) <= MAX_CHARS_PER_CHUNK else t[:MAX_CHARS_PER_CHUNK]) for t in texts]
-
-def _embed_local(texts: List[str]) -> List[List[float]]:
-    dim = 256
-    vecs: List[List[float]] = []
-    for t in texts:
-        v = [0.0]*dim
-        for token in t.lower().split():
-            h = int(hashlib.sha1(token.encode()).hexdigest(), 16)
-            v[h % dim] += 1.0
-        norm = math.sqrt(sum(x*x for x in v)) or 1.0
-        vecs.append([x/norm for x in v])
-    return vecs
-
-def _embed_openai_batched(texts: List[str]) -> List[List[float]]:
+# ---- Embedding helpers ----
+def _embed_texts_openai(texts: List[str]) -> List[List[float]]:
     from openai import OpenAI
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
     out: List[List[float]] = []
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i:i+BATCH_SIZE]
-        try:
-            rsp = client.embeddings.create(model=model, input=batch)
-            out.extend([d.embedding for d in rsp.data])
-        except Exception:
-            # If a batch fails, fall back to local for that batch so ingest never hard fails
-            out.extend(_embed_local(batch))
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[i:i+EMBED_BATCH_SIZE]
+        resp = client.embeddings.create(model=OPENAI_EMBED_MODEL, input=batch)
+        out.extend([d.embedding for d in resp.data])
     return out
 
+def _embed_texts_local(texts: List[str]) -> List[List[float]]:
+    # super-simple bag-of-chars embedding (deterministic)
+    # good enough for basic recall until openai is enabled
+    import hashlib
+    V = 256
+    vecs: List[List[float]] = []
+    for t in texts:
+        v = [0.0] * V
+        for ch in t:
+            v[ord(ch) % V] += 1.0
+        # L2 norm
+        norm = math.sqrt(sum(x*x for x in v)) or 1.0
+        vecs.append([x / norm for x in v])
+    return vecs
+
 def _embed_texts(texts: List[str]) -> List[List[float]]:
-    texts = _prepare_texts(texts)
-    if EMBED_BACKEND == "local":
-        return _embed_local(texts)
+    if not texts:
+        return []
     if EMBED_BACKEND == "openai":
-        return _embed_openai_batched(texts)
-    # auto
-    if _has_openai():
-        try:
-            return _embed_openai_batched(texts)
-        except Exception:
-            return _embed_local(texts)
-    return _embed_local(texts)
+        return _embed_texts_openai(texts)
+    return _embed_texts_local(texts)
 
-def _cosine(a: List[float], b: List[float]) -> float:
-    return sum(x*y for x,y in zip(a,b)) / (
-        (math.sqrt(sum(x*x for x in a)) or 1.0) * (math.sqrt(sum(y*y for y in b)) or 1.0)
-    )
+# ---- Index I/O ----
+def _load_index() -> Dict[str, Any]:
+    if INDEX_PATH.exists():
+        with open(INDEX_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"meta": {"created_at": 0, "count": 0, "embed_backend": EMBED_BACKEND}, "records": []}
 
-def ingest_docs_to_json() -> Dict[str, Any]:
-    records: List[Dict[str, Any]] = []
-    for root, _, files in os.walk(DOCS_DIR):
-        for fn in files:
-            ext = os.path.splitext(fn)[1].lower()
-            if ext not in [".pdf", ".md", ".txt", ".html", ".htm", ".docx"]:
+def _save_index(idx: Dict[str, Any]) -> None:
+    with open(INDEX_PATH, "w", encoding="utf-8") as f:
+        json.dump(idx, f, ensure_ascii=False)
+
+# ---- Ingestion ----
+def ingest_docs_to_json(only_file: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Read supported files under backend/docs, chunk, embed, and save to data/gsos_chunks.json
+    If only_file is provided, only (re)ingest that one; otherwise rebuild from all docs.
+    """
+    allowed = {".pdf", ".md", ".txt", ".html", ".htm", ".docx"}
+
+    files: List[Path] = []
+    for p in DOCS_DIR.rglob("*"):
+        if p.is_file() and p.suffix.lower() in allowed:
+            if only_file and p.name != only_file:
                 continue
-            path = os.path.join(root, fn)
-            text = read_text_any(path)
-            chunks = chunk_text(text)
-            for i, ch in enumerate(chunks):
-                records.append({
-                    "id": f"{fn}:{i}",
-                    "source_path": os.path.relpath(path, DOCS_DIR),
-                    "chunk_index": i,
-                    "text": ch
-                })
+            files.append(p)
 
-    embeddings = _embed_texts([r["text"] for r in records]) if records else []
-    for r, e in zip(records, embeddings):
-        r["embedding"] = e
+    # If only_file is set but not found, keep existing index and report 0 delta
+    if only_file and not files:
+        idx = _load_index()
+        idx["meta"].update({
+            "created_at": int(time.time()),
+            "count": len(idx.get("records", [])),
+            "embed_backend": EMBED_BACKEND,
+            "note": f"only_file '{only_file}' not found",
+        })
+        _save_index(idx)
+        return idx
 
-    payload = {
+    # Build records
+    records: List[Dict[str, Any]] = []
+    for fp in files:
+        text = read_text_any(str(fp))
+        if not text:
+            continue
+        chunks = chunk_text(text)
+        for i, ch in enumerate(chunks):
+            records.append({
+                "source_path": fp.name,
+                "chunk_index": i,
+                "text": ch,
+            })
+
+    # If only_file: we need to *merge* with existing records from other files
+    if only_file:
+        old = _load_index()
+        keep: List[Dict[str, Any]] = []
+        for r in old.get("records", []):
+            # keep everything NOT from only_file (we'll replace that subset)
+            if r.get("source_path") != only_file:
+                keep.append(r)
+        base_records = keep + records
+    else:
+        base_records = records
+
+    # Embed in the same order
+    embeddings = _embed_texts([r["text"] for r in base_records]) if base_records else []
+
+    # Write index
+    idx = {
         "meta": {
             "created_at": int(time.time()),
-            "count": len(records),
-            "embed_backend": ("openai" if _has_openai() and EMBED_BACKEND != "local" else "local") if records else "none"
+            "count": len(base_records),
+            "embed_backend": EMBED_BACKEND,
+            "openai_model": OPENAI_EMBED_MODEL if EMBED_BACKEND == "openai" else None,
+            "only_file": only_file or None,
         },
-        "chunks": records
+        "records": [
+            {**r, "embedding": embeddings[i]} for i, r in enumerate(base_records)
+        ],
     }
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-    return payload
+    _save_index(idx)
+    return idx
 
-def _load_index() -> Dict[str, Any]:
-    if not os.path.exists(DATA_PATH):
-        return {"meta": {"created_at": 0, "count": 0, "embed_backend": "none"}, "chunks": []}
-    with open(DATA_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+# ---- Search ----
+def _cosine(a: List[float], b: List[float]) -> float:
+    s = sum(x*y for x, y in zip(a, b))
+    na = math.sqrt(sum(x*x for x in a)) or 1.0
+    nb = math.sqrt(sum(y*y for y in b)) or 1.0
+    return s / (na * nb)
 
 def search_chunks(query: str, top_k: int = 5) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     idx = _load_index()
-    chunks = idx.get("chunks", [])
-    if not chunks:
+    recs = idx.get("records", [])
+    if not recs:
         return [], idx
 
-    q_vec = _embed_texts([query])[0]
-    scored = [( _cosine(q_vec, c["embedding"]), c) for c in chunks if "embedding" in c]
-
+    q_emb = _embed_texts([query])[0]
+    scored = []
+    for r in recs:
+        score = _cosine(q_emb, r["embedding"])
+        scored.append((score, r))
     scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for s, c in scored[:top_k]:
-        item = {k: v for k, v in c.items() if k != "embedding"}
-        item["score"] = round(float(s), 4)
-        out.append(item)
-    return out, idx
+    results = []
+    for score, r in scored[:max(1, top_k)]:
+        out = dict(r)
+        out["score"] = round(float(score), 6)
+        results.append(out)
+    return results, idx

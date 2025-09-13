@@ -1,25 +1,32 @@
-from fastapi import FastAPI, Depends, Header, HTTPException, Query, Body
+from fastapi import FastAPI, Depends, Header, HTTPException, Query, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from dotenv import load_dotenv
-import os, json
+import os, json, shutil, threading, time
+from uuid import uuid4
+from typing import Optional, Dict, Any
 
-# Local modules (absolute imports)
+# -------------------------
+# Local imports
+# -------------------------
 from schemas import GenerateQuery, GenerateResponse
 from generation import generate_with_openai, _fallback_questions
 from search import search_chunks, ingest_docs_to_json
 
 # -------------------------
-# App / Config (must be before using @app or Depends)
+# Config
 # -------------------------
 load_dotenv()
 
-API_KEY = os.getenv("BACKEND_API_KEY", "")          # set in Railway
-ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]    # e.g., "*", or "https://your-frontend"
+API_KEY = os.getenv("BACKEND_API_KEY", "")
+ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
 OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
-app = FastAPI(title="GSOS Survey & RAG API", version="1.2.0")
+DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "gsos_chunks.json")
+DOCS_DIR = os.path.join(os.path.dirname(__file__), "docs")
+
+app = FastAPI(title="GSOS Survey & RAG API", version="1.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,14 +37,9 @@ app.add_middleware(
 )
 
 def require_key(x_api_key: str = Header(default="")):
-    """Simple header-based auth. Set BACKEND_API_KEY in env and send x-api-key header."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
-
-# Paths to data/docs
-DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "gsos_chunks.json")
-DOCS_DIR  = os.path.join(os.path.dirname(__file__), "docs")
 
 # -------------------------
 # Health
@@ -56,11 +58,6 @@ def generate(
     seed: int | None = None,
     _=Depends(require_key),
 ):
-    """
-    Generates a role-aware readiness survey.
-    If OPENAI_API_KEY is set, questions are grounded in GSOS chunks via OpenAI.
-    If OpenAI fails, we serve deterministic local questions to stay reliable.
-    """
     q = GenerateQuery(role=role, count=count, seed=seed)
     try:
         if OPENAI_PRESENT:
@@ -71,19 +68,13 @@ def generate(
         logger.exception(f"OpenAI generation failed; serving fallback. Error: {e}")
         questions = _fallback_questions(q)
 
-    logger.info(f"Generated {len(questions)} questions for role={role}")
     return {"role": q.role, "questions": [qq.model_dump() for qq in questions]}
 
 # -------------------------
-# RAG: Ask over GSOS docs
+# RAG QA
 # -------------------------
 @app.post("/ask")
 def ask(payload: dict = Body(...), _=Depends(require_key)):
-    """
-    Body: { "query": str, "top_k": int=5 }
-    Retrieves most relevant chunks from gsos_chunks.json.
-    If OPENAI_API_KEY is present, also returns a short answer grounded strictly in context.
-    """
     query = (payload.get("query") or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query_required")
@@ -119,13 +110,10 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
     return {"ok": True, "meta": meta.get("meta", {}), "results": results, "answer": answer}
 
 # -------------------------
-# Admin: List docs seen by container (debug)
+# Admin: List docs
 # -------------------------
 @app.get("/admin/list-docs")
 def list_docs(_=Depends(require_key)):
-    """
-    Returns the doc files visible inside the running container. Useful if reingest returns count=0.
-    """
     out = []
     for root, _, files in os.walk(DOCS_DIR):
         for fn in files:
@@ -139,19 +127,15 @@ def list_docs(_=Depends(require_key)):
     return {"ok": True, "docs_dir": DOCS_DIR, "files": out}
 
 # -------------------------
-# Admin: Reingest docs -> JSON
+# Admin: Reingest (sync)
 # -------------------------
 @app.post("/admin/reingest")
 def reingest(_=Depends(require_key)):
-    """
-    Re-chunk all files in backend/docs into backend/data/gsos_chunks.json
-    Supports: .pdf .md .txt .html .htm .docx
-    """
     payload = ingest_docs_to_json()
     return {"ok": True, "meta": payload["meta"]}
 
 # -------------------------
-# Admin: index meta & download
+# Admin: Index meta & download
 # -------------------------
 @app.get("/admin/index-meta")
 def index_meta(_=Depends(require_key)):
@@ -167,14 +151,11 @@ def download_index(_=Depends(require_key)):
         return JSONResponse({"ok": False, "error": "index not found"}, status_code=404)
     return FileResponse(DATA_PATH, media_type="application/json", filename="gsos_chunks.json")
 
-from fastapi import UploadFile, File
-import shutil
-
+# -------------------------
+# Admin: Upload + Auto-ingest
+# -------------------------
 @app.post("/admin/upload")
 def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
-    """
-    Upload a single .docx/.pdf/.md/.txt/.html file to backend/docs and reingest.
-    """
     allowed = {".docx", ".pdf", ".md", ".txt", ".html", ".htm"}
     name = file.filename or "uploaded"
     ext = os.path.splitext(name)[1].lower()
@@ -183,9 +164,35 @@ def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     dest_path = os.path.join(DOCS_DIR, name)
-
     with open(dest_path, "wb") as out:
         shutil.copyfileobj(file.file, out)
 
-    payload = ingest_docs_to_json()  # full reindex (simple & reliable)
+    payload = ingest_docs_to_json()
     return {"ok": True, "saved": name, "meta": payload["meta"]}
+
+# -------------------------
+# Admin: Async Reingest (background jobs)
+# -------------------------
+JOBS: Dict[str, Dict[str, Any]] = {}
+
+def _run_reingest_job(job_id: str, only_file: Optional[str] = None):
+    try:
+        JOBS[job_id] = {"status": "running", "started_at": int(time.time()), "meta": {}}
+        meta = ingest_docs_to_json(only_file=only_file)  # extend search.py to support only_file
+        JOBS[job_id].update({"status": "done", "ended_at": int(time.time()), "meta": meta.get("meta", {})})
+    except Exception as e:
+        JOBS[job_id].update({"status": "error", "ended_at": int(time.time()), "error": str(e)})
+
+@app.post("/admin/reingest/start")
+def reingest_start(file: Optional[str] = Query(None), _=Depends(require_key)):
+    job_id = uuid4().hex[:12]
+    t = threading.Thread(target=_run_reingest_job, args=(job_id, file), daemon=True)
+    t.start()
+    return {"ok": True, "job_id": job_id}
+
+@app.get("/admin/reingest/status")
+def reingest_status(job_id: str = Query(...), _=Depends(require_key)):
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    return {"ok": True, "job": job}
