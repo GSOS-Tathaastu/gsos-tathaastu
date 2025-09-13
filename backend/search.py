@@ -34,7 +34,7 @@ def ingest_docs_to_json() -> Dict[str, Any]:
     records: List[Dict[str, Any]] = []
     for root, _, files in os.walk(DOCS_DIR):
         for fn in files:
-            if os.path.splitext(fn)[1].lower() not in [".pdf", ".md", ".txt", ".html", ".htm"]:
+            if os.path.splitext(fn)[1].lower() not in [".pdf", ".md", ".txt", ".html", ".htm", ".docx"]:
                 continue
             path = os.path.join(root, fn)
             text = read_text_any(path)

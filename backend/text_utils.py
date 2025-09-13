@@ -19,6 +19,14 @@ def read_text_any(path: str) -> str:
             return "\n".join([p.extract_text() or "" for p in reader.pages])
         except Exception:
             return ""
+    if ext == ".docx":
+        try:
+            from docx import Document  # python-docx
+            doc = Document(path)
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception:
+            return ""
+    # Unknown -> try text
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
