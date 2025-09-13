@@ -4,18 +4,21 @@ from loguru import logger
 from dotenv import load_dotenv
 import os
 
+# Local modules (absolute imports)
 from schemas import GenerateQuery, GenerateResponse
 from generation import generate_with_openai, _fallback_questions
-
-# RAG imports
 from search import search_chunks, ingest_docs_to_json
 
+# -------------------------
+# App / Config
+# -------------------------
 load_dotenv()
 
-API_KEY = os.getenv("BACKEND_API_KEY", "")
-ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
+API_KEY = os.getenv("BACKEND_API_KEY", "")  # set in Railway
+ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]  # e.g., "*", or "https://your-frontend"
+OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
-app = FastAPI(title="GSOS Survey & RAG API", version="1.1.0")
+app = FastAPI(title="GSOS Survey & RAG API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,16 +30,23 @@ app.add_middleware(
 
 
 def require_key(x_api_key: str = Header(default="")):
+    """Simple header-based auth. Set BACKEND_API_KEY in env and send x-api-key header."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
 
 
+# -------------------------
+# Health
+# -------------------------
 @app.get("/health")
 def health():
     return {"ok": True}
 
 
+# -------------------------
+# Survey Generation
+# -------------------------
 @app.get("/generate", response_model=GenerateResponse)
 def generate(
     role: str = Query("retailer"),
@@ -45,28 +55,34 @@ def generate(
     _=Depends(require_key),
 ):
     """
-    Generate a role-aware readiness survey grounded in GSOS chunks (if OPENAI_API_KEY is set),
-    else fall back to curated local questions.
+    Generates a role-aware readiness survey.
+    If OPENAI_API_KEY is set, questions are grounded in GSOS chunks via OpenAI.
+    If OpenAI fails for any reason, we fall back to deterministic local questions
+    to keep the API reliable.
     """
     q = GenerateQuery(role=role, count=count, seed=seed)
-    if os.getenv("OPENAI_API_KEY"):
-        questions = generate_with_openai(q)
-    else:
+    try:
+        if OPENAI_PRESENT:
+            questions = generate_with_openai(q)
+        else:
+            questions = _fallback_questions(q)
+    except Exception as e:
+        logger.exception(f"OpenAI generation failed; serving fallback. Error: {e}")
         questions = _fallback_questions(q)
 
     logger.info(f"Generated {len(questions)} questions for role={role}")
     return {"role": q.role, "questions": [qq.model_dump() for qq in questions]}
 
 
-# -----------------------------
-# RAG Endpoints
-# -----------------------------
-
+# -------------------------
+# RAG: Ask over GSOS docs
+# -------------------------
 @app.post("/ask")
 def ask(payload: dict = Body(...), _=Depends(require_key)):
     """
     Body: { "query": str, "top_k": int=5 }
-    Returns: top chunks and (if OPENAI_API_KEY) a short answer grounded strictly in context.
+    Retrieves most relevant chunks from gsos_chunks.json.
+    If OPENAI_API_KEY is present, also returns a short answer grounded strictly in context.
     """
     query = (payload.get("query") or "").strip()
     if not query:
@@ -76,7 +92,7 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
     results, meta = search_chunks(query, top_k=top_k)
 
     answer = None
-    if os.getenv("OPENAI_API_KEY") and results:
+    if OPENAI_PRESENT and results:
         try:
             from openai import OpenAI
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -97,17 +113,43 @@ def ask(payload: dict = Body(...), _=Depends(require_key)):
             )
             answer = rsp.choices[0].message.content
         except Exception as e:
-            logger.exception(e)
+            logger.exception(f"OpenAI answer failed: {e}")
             answer = None
 
     return {"ok": True, "meta": meta.get("meta", {}), "results": results, "answer": answer}
 
 
+# -------------------------
+# Admin: Reingest docs -> JSON
+# -------------------------
 @app.post("/admin/reingest")
 def reingest(_=Depends(require_key)):
     """
     Re-chunk all files in backend/docs into backend/data/gsos_chunks.json
-    Supports: .pdf .md .txt .html
+    Supports: .pdf .md .txt .html .htm .docx
     """
     payload = ingest_docs_to_json()
     return {"ok": True, "meta": payload["meta"]}
+
+
+# -------------------------
+# Admin: List docs seen by container (debug)
+# -------------------------
+DOCS_DIR = os.path.join(os.path.dirname(__file__), "docs")
+
+@app.get("/admin/list-docs")
+def list_docs(_=Depends(require_key)):
+    """
+    Returns the doc files visible inside the running container. Useful if reingest returns count=0.
+    """
+    out = []
+    for root, _, files in os.walk(DOCS_DIR):
+        for fn in files:
+            path = os.path.join(root, fn)
+            rel = os.path.relpath(path, DOCS_DIR)
+            try:
+                size = os.path.getsize(path)
+            except Exception:
+                size = -1
+            out.append({"path": rel, "size": size})
+    return {"ok": True, "docs_dir": DOCS_DIR, "files": out}
