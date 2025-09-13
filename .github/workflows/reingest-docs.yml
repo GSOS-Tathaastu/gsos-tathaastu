@@ -1,0 +1,49 @@
+name: Reingest GSOS Docs
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "backend/docs/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  reingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for context only)
+        uses: actions/checkout@v4
+
+      # Optional: small wait to give Railway a moment to pick up the new deploy.
+      - name: Wait a bit for deployment
+        run: sleep 20
+
+      - name: Call /admin/reingest on Railway
+        env:
+          REINGEST_URL: ${{ secrets.REINGEST_URL }}
+          BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
+        run: |
+          echo "Reingesting docs via $REINGEST_URL ..."
+          # Try up to 5 times in case the new deploy is still rolling out
+          for i in 1 2 3 4 5; do
+            set +e
+            HTTP_CODE=$(curl -s -o resp.json -w "%{http_code}" \
+              -X POST \
+              -H "x-api-key: ${BACKEND_API_KEY}" \
+              "${REINGEST_URL}")
+            set -e
+            echo "HTTP $HTTP_CODE"
+            cat resp.json || true
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "Reingest success ✅"
+              exit 0
+            fi
+            echo "Retry in 10s..."
+            sleep 10
+          done
+          echo "Reingest failed after retries ❌"
+          cat resp.json || true
+          exit 1
