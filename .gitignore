@@ -1,0 +1,19 @@
+# Node / Next.js
+node_modules
+.next
+out
+.env.local
+.env
+
+# Python / FastAPI
+__pycache__/
+*.pyc
+.venv
+.env
+
+# Logs
+*.log
+
+# Misc
+.DS_Store
+Thumbs.db
