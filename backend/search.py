@@ -1,184 +1,188 @@
-import os, json, time, hashlib
-from pathlib import Path
-from typing import List, Tuple
+import os
+import json
+import time
+import hashlib
+from typing import List, Tuple, Dict, Any
+from loguru import logger
+from dotenv import load_dotenv
 
 from docx import Document
 from PyPDF2 import PdfReader
 
-# -------------------------
-# Utils
-# -------------------------
-def _hash_text(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
+# Load env
+load_dotenv()
 
-def _split_text(text: str, max_tokens: int = 500) -> List[str]:
-    """
-    Simple splitter: break text into ~500-word chunks.
-    You can refine with tiktoken later if needed.
-    """
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), max_tokens):
-        chunk = " ".join(words[i : i + max_tokens])
-        if chunk.strip():
-            chunks.append(chunk.strip())
+DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "gsos_chunks.json")
+DOCS_DIR = os.path.join(os.path.dirname(__file__), "docs")
+
+
+# -------------------------
+# Helpers
+# -------------------------
+def _split_text(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str]:
+    """Split text into overlapping chunks."""
+    chunks, start = [], 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+        if start < 0:
+            start = 0
     return chunks
 
-# -------------------------
-# Readers
-# -------------------------
-def _read_docx(path: str) -> str:
-    doc = Document(path)
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
-def _read_pdf(path: str) -> str:
-    pdf = PdfReader(path)
+def _load_file(path: str) -> str:
+    """Extract text from .docx, .pdf, .txt, .md, .html"""
+    ext = os.path.splitext(path)[1].lower()
+    text = ""
+    try:
+        if ext == ".docx":
+            doc = Document(path)
+            text = "\n".join([p.text for p in doc.paragraphs])
+        elif ext == ".pdf":
+            reader = PdfReader(path)
+            text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        elif ext in {".txt", ".md", ".html", ".htm"}:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read()
+        else:
+            logger.warning(f"Unsupported file type: {ext}")
+    except Exception as e:
+        logger.error(f"Failed to load {path}: {e}")
+    return text
+
+
+# -------------------------
+# Embedding Backends
+# -------------------------
+def _embed_local(texts: List[str]) -> List[List[float]]:
+    """Fallback embedding: deterministic hash vectors."""
     out = []
-    for page in pdf.pages:
-        try:
-            out.append(page.extract_text() or "")
-        except Exception:
-            continue
-    return "\n".join(out)
+    for t in texts:
+        h = hashlib.sha256(t.encode("utf-8")).digest()
+        out.append([b / 255.0 for b in h[:128]])  # 128-dim fake vector
+    return out
 
-def _read_txt(path: str) -> str:
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read()
 
-# -------------------------
-# Embedding backends
-# -------------------------
-def _embed_local(chunks: List[str]) -> List[List[float]]:
-    """
-    Very simple local embedding: hash -> pseudo vector.
-    Replace later with real model if needed.
-    """
-    vecs = []
-    for ch in chunks:
-        h = hashlib.sha256(ch.encode("utf-8")).digest()
-        vecs.append([b / 255 for b in h[:64]])  # 64-dim pseudo vector
-    return vecs
-
-def _embed_openai(chunks: List[str], model: str) -> List[List[float]]:
+def _embed_openai(texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
+    """Use OpenAI API for embeddings."""
     from openai import OpenAI
-   client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-rsp = client.embeddings.create(model=model, input=chunks)
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # OpenAI supports batching
-    rsp = client.embeddings.create(model=model, input=chunks)
+    rsp = client.embeddings.create(model=model, input=texts)
     return [d.embedding for d in rsp.data]
 
-# -------------------------
-# Main ingest
-# -------------------------
-def ingest_docs_to_json(only_file: str | None = None, force_openai: bool = False):
-    """
-    Read docs/, split into chunks, embed with local or OpenAI, save JSON index.
-    """
-    docs_dir = Path(__file__).parent / "docs"
-    data_dir = Path(__file__).parent / "data"
-    data_dir.mkdir(exist_ok=True)
-    out_path = data_dir / "gsos_chunks.json"
 
+# -------------------------
+# Ingestion
+# -------------------------
+def ingest_docs_to_json(
+    only_file: str = None,
+    force_openai: bool = False,
+    chunk_size: int = 800,
+    overlap: int = 100,
+    openai_model: str = "text-embedding-3-small",
+) -> Dict[str, Any]:
+    """Process docs in DOCS_DIR and save embeddings to JSON."""
+    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
+
+    # Collect files
     files = []
-    for fn in os.listdir(docs_dir):
-        if only_file and fn != only_file:
-            continue
-        if fn.lower().endswith((".docx", ".pdf", ".txt", ".md", ".html", ".htm")):
-            files.append(fn)
+    for root, _, fnames in os.walk(DOCS_DIR):
+        for fn in fnames:
+            if only_file and fn != only_file:
+                continue
+            files.append(os.path.join(root, fn))
+
+    if not files:
+        logger.warning("No files found for ingestion.")
+        return {"meta": {"created_at": int(time.time()), "count": 0, "embed_backend": "none"}}
 
     records = []
-    for fn in files:
-        path = docs_dir / fn
-        ext = path.suffix.lower()
-        if ext == ".docx":
-            text = _read_docx(path)
-        elif ext == ".pdf":
-            text = _read_pdf(path)
-        else:
-            text = _read_txt(path)
-
-        for i, chunk in enumerate(_split_text(text)):
+    for f in files:
+        text = _load_file(f)
+        if not text.strip():
+            continue
+        chunks = _split_text(text, chunk_size=chunk_size, overlap=overlap)
+        for i, ch in enumerate(chunks):
             records.append({
-                "id": f"{fn}#{i}",
-                "source_path": fn,
+                "source_path": os.path.basename(f),
                 "chunk_index": i,
-                "text": chunk,
+                "text": ch.strip()
             })
 
-    # Decide backend
-    backend = os.getenv("EMBED_BACKEND", "local")
-    if force_openai:
-        backend = "openai"
+    if not records:
+        logger.warning("No chunks created from files.")
+        return {"meta": {"created_at": int(time.time()), "count": 0, "embed_backend": "none"}}
 
-    openai_model = None
+    texts = [r["text"] for r in records]
+    backend = "local"
     embeddings = []
 
-    if backend == "openai":
-        openai_model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-        texts = [r["text"] for r in records]
-        if texts:
+    try:
+        if os.getenv("OPENAI_API_KEY") and (force_openai or not embeddings):
+            logger.info(f"Embedding {len(texts)} chunks with OpenAI ({openai_model})...")
             embeddings = _embed_openai(texts, model=openai_model)
-    else:
-        texts = [r["text"] for r in records]
-        if texts:
-            embeddings = _embed_local(texts)
+            backend = "openai"
+    except Exception as e:
+        logger.error(f"OpenAI embedding failed, falling back to local. Error: {e}")
+        embeddings = _embed_local(texts)
 
-    # Attach embeddings
-    for rec, emb in zip(records, embeddings):
-        rec["embedding"] = emb
+    if not embeddings:
+        embeddings = _embed_local(texts)
+
+    for r, e in zip(records, embeddings):
+        r["embedding"] = e
 
     payload = {
         "meta": {
             "created_at": int(time.time()),
             "count": len(records),
             "embed_backend": backend,
-            "openai_model": openai_model,
+            "openai_model": openai_model if backend == "openai" else None,
             "only_file": only_file,
         },
         "records": records,
     }
 
-    with open(out_path, "w", encoding="utf-8") as f:
+    with open(DATA_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
 
+    logger.info(f"Ingested {len(records)} chunks, backend={backend}")
     return payload
+
 
 # -------------------------
 # Search
 # -------------------------
-def _cosine(a: List[float], b: List[float]) -> float:
-    import math
-    dot = sum(x*y for x, y in zip(a, b))
-    na = math.sqrt(sum(x*x for x in a))
-    nb = math.sqrt(sum(y*y for y in b))
-    return dot / (na * nb + 1e-9)
-
-def search_chunks(query: str, top_k: int = 5) -> Tuple[List[dict], dict]:
-    data_path = Path(__file__).parent / "data" / "gsos_chunks.json"
-    if not data_path.exists():
+def search_chunks(query: str, top_k: int = 5) -> Tuple[List[Dict], Dict]:
+    """Return top_k most similar chunks to query."""
+    if not os.path.exists(DATA_PATH):
         return [], {"meta": {"created_at": 0, "count": 0, "embed_backend": "none"}}
 
-    with open(data_path, "r", encoding="utf-8") as f:
+    with open(DATA_PATH, "r", encoding="utf-8") as f:
         idx = json.load(f)
 
     records = idx.get("records", [])
-    backend = idx.get("meta", {}).get("embed_backend", "local")
+    if not records:
+        return [], idx
 
     # Embed query
-    if backend == "openai":
-        openai_model = idx["meta"].get("openai_model", "text-embedding-3-small")
-        q_emb = _embed_openai([query], model=openai_model)[0]
+    if os.getenv("OPENAI_API_KEY") and idx["meta"].get("embed_backend") == "openai":
+        q_emb = _embed_openai([query])[0]
     else:
         q_emb = _embed_local([query])[0]
 
-    # Score
-    scored = [(rec, _cosine(q_emb, rec["embedding"])) for rec in records]
-    scored.sort(key=lambda x: x[1], reverse=True)
-    out = []
-    for rec, score in scored[:top_k]:
-        r = rec.copy()
-        r["score"] = float(score)
-        out.append(r)
+    # Cosine similarity
+    def cos_sim(a, b):
+        import numpy as np
+        a, b = np.array(a), np.array(b)
+        return float(a @ b / ((a**2).sum()**0.5 * (b**2).sum()**0.5 + 1e-8))
 
-    return out, idx
+    scored = []
+    for r in records:
+        score = cos_sim(q_emb, r["embedding"])
+        scored.append((score, r))
+
+    top = sorted(scored, key=lambda x: x[0], reverse=True)[:top_k]
+    return [r for _, r in top], idx

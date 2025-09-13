@@ -1,7 +1,6 @@
-from fastapi import FastAPI, Depends, Header, HTTPException, Query, Body
+from fastapi import FastAPI, Depends, Header, HTTPException, Query, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi import UploadFile, File
 from loguru import logger
 from dotenv import load_dotenv
 from typing import Optional
@@ -21,7 +20,7 @@ API_KEY = os.getenv("BACKEND_API_KEY", "")
 ALLOW_ORIGINS = [os.getenv("ALLOW_ORIGIN", "*")]
 OPENAI_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
-app = FastAPI(title="GSOS Survey & RAG API", version="1.3.0")
+app = FastAPI(title="GSOS Survey & RAG API", version="1.3.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -127,15 +126,24 @@ def list_docs(_=Depends(require_key)):
     return {"ok": True, "docs_dir": DOCS_DIR, "files": out}
 
 # -------------------------
-# Admin: Reingest
+# Admin: Reingest (now forwards only_file + force_openai)
 # -------------------------
 @app.post("/admin/reingest")
 def reingest(
-    file: Optional[str] = Query(None, alias="only_file"),
+    only_file: Optional[str] = Query(None),
     force_openai: bool = Query(False),
     _=Depends(require_key),
 ):
-    payload = ingest_docs_to_json(only_file=file, force_openai=force_openai)
+    """
+    Rebuild JSON index from docs/.
+    Query params:
+      - only_file: reindex just one filename (others preserved)
+      - force_openai=true: require OpenAI embeddings (no silent local fallback)
+    """
+    payload = ingest_docs_to_json(
+        only_file=only_file,
+        force_openai=force_openai
+    )
     return {"ok": True, "meta": payload["meta"]}
 
 # -------------------------
@@ -156,7 +164,7 @@ def download_index(_=Depends(require_key)):
     return FileResponse(DATA_PATH, media_type="application/json", filename="gsos_chunks.json")
 
 # -------------------------
-# Admin: Upload doc
+# Admin: Upload doc (+ auto reindex all)
 # -------------------------
 @app.post("/admin/upload")
 def admin_upload(file: UploadFile = File(...), _=Depends(require_key)):
