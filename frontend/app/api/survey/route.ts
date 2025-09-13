@@ -1,50 +1,50 @@
+// app/api/survey/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
-import { Onboarding } from "@/lib/models";
-import { computeScore, mapBlueprint } from "@/lib/score";
-import { surveyReceiptEmail } from "@/lib/emailTemplates";
+export const runtime = "nodejs";
 
+// --- In-memory cache (survives hot reloads in dev) ---
+const g = globalThis as any;
+g.__SURVEY_CACHE__ ||= [] as any[];
+const surveyCache: any[] = g.__SURVEY_CACHE__;
+
+// --- Helpers (Mongo is optional) ---
+const MONGO_URI = process.env.MONGO_URI || "";
+// If you want to pre-wire a future Mongo client, you can do it here.
+// For now we just keep optional stubs:
+async function saveToMongo(doc: any) {
+  // TODO: implement when ready (connect, insert)
+  // Example with mongoose or mongodb driver later.
+  return { ok: true, from: "mongo", saved: doc };
+}
+async function loadFromMongo() {
+  // TODO: implement when ready (connect, find)
+  return { ok: true, from: "mongo", items: [] as any[] };
+}
+
+// --- GET: list survey submissions ---
+export async function GET() {
+  if (!MONGO_URI) {
+    return NextResponse.json({ ok: true, from: "memory", items: surveyCache });
+  }
+  const out = await loadFromMongo();
+  return NextResponse.json(out);
+}
+
+// --- POST: create a submission ---
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-
-  const onboarding = body.onboarding;
-  const answers = body.answers || {};
-  const email: string | undefined = body.email || body.onboarding?.email;
-  const name: string | undefined = body.name || body.onboarding?.name;
-
-  if (!onboarding) {
-    return NextResponse.json({ error: "missing_onboarding" }, { status: 400 });
-  }
-
-  const score = computeScore(answers);
-  const blueprint = mapBlueprint(onboarding.painArea || "");
-
-  Onboarding.parse(onboarding);
-
-  const db = await getDb();
-  const doc = {
-    onboarding,
-    answers,
-    score,
-    blueprint,
-    createdAt: new Date()
+  const body = await req.json().catch(() => ({}));
+  // Minimal shape validation (extend as needed)
+  const payload = {
+    createdAt: Date.now(),
+    role: body.role ?? null,
+    answers: body.answers ?? null,
+    meta: body.meta ?? null,
   };
-  const { insertedId } = await db.collection("surveys").insertOne(doc);
 
-  if (email && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    const { subject, html } = surveyReceiptEmail({
-      name,
-      role: onboarding.role,
-      score,
-      modules: blueprint.modules,
-      siteUrl: process.env.NEXT_PUBLIC_SITE_URL
-    });
-    fetch(`${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/mail`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ to: email, subject, html })
-    }).catch(() => {});
+  if (!MONGO_URI) {
+    surveyCache.push(payload);
+    return NextResponse.json({ ok: true, from: "memory", saved: payload });
   }
-
-  return NextResponse.json({ ok: true, id: insertedId.toString(), score, blueprint });
+  const out = await saveToMongo(payload);
+  return NextResponse.json(out);
 }
