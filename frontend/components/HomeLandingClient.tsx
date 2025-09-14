@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type StepKey = "ingest" | "analyze" | "act" | "scale";
 
@@ -13,8 +13,7 @@ const STEP_CONTENT: Record<
   ingest: {
     title: "Ingest",
     icon: "📥",
-    desc:
-      "GSOS connects your ERP, invoices, shipment docs, banking and marketplace feeds — automatically.",
+    desc: "GSOS connects your ERP, invoices, shipment docs, banking and marketplace feeds — automatically.",
     details: [
       "One-click connectors for Tally/Zoho/QuickBooks, Shopify/Woo, and S3/Drive.",
       "Auto OCR + doc normalization for invoices, POs, e-way bills, BOL, AWB.",
@@ -24,8 +23,7 @@ const STEP_CONTENT: Record<
   analyze: {
     title: "Analyze",
     icon: "📊",
-    desc:
-      "AI benchmarks your bottlenecks against real trade patterns and internal baselines.",
+    desc: "AI benchmarks your bottlenecks against real trade patterns and internal baselines.",
     details: [
       "Pattern mining across stockouts, overstock, turns, OTD & lead-time variance.",
       "RAG over your docs for explainable decisions (citations by paragraph).",
@@ -35,8 +33,7 @@ const STEP_CONTENT: Record<
   act: {
     title: "Act",
     icon: "⚡",
-    desc:
-      "Surface replenishment, finance routes, and compliance workflows in one place.",
+    desc: "Surface replenishment, finance routes, and compliance workflows in one place.",
     details: [
       "Smart replenishment (ABC/XYZ, MOQ/MOQ), purchase triggers, and allocation.",
       "Finance routing: map invoices to credit lines or discounting partners.",
@@ -46,8 +43,7 @@ const STEP_CONTENT: Record<
   scale: {
     title: "Scale",
     icon: "🚀",
-    desc:
-      "Unlock faster payments, better margins, and cross-border readiness with confidence.",
+    desc: "Unlock faster payments, better margins, and cross-border readiness with confidence.",
     details: [
       "Faster working capital cycles via structured, trusted data.",
       "Channel expansion playbooks: what to launch, where, and when.",
@@ -56,9 +52,26 @@ const STEP_CONTENT: Record<
   },
 };
 
+type WBCard = {
+  label: string;
+  value: string;
+  sub?: string;
+};
+
+function fmtMoney(n: number | null) {
+  if (n == null) return "—";
+  // format billions/trillions nicely
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
 export default function HomeLandingClient() {
   const [openStep, setOpenStep] = useState<StepKey | null>(null);
 
+  // Static headline stats
   const stats = useMemo(
     () => [
       { label: "Global Trade", value: "$32T", sub: "Total goods & services" },
@@ -68,6 +81,53 @@ export default function HomeLandingClient() {
     ],
     []
   );
+
+  // World Bank snapshot (defaults to India; change country=IND below if you want WLD or another ISO3)
+  const [wbCards, setWbCards] = useState<WBCard[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/worldbank?country=IND")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive || !j?.ok) return;
+        const { stats } = j;
+        const cards: WBCard[] = [
+          {
+            label: "Exports (% GDP)",
+            value:
+              stats?.expPct?.value != null
+                ? `${(+stats.expPct.value).toFixed(1)}%`
+                : "—",
+            sub: stats?.expPct?.date,
+          },
+          {
+            label: "Imports (% GDP)",
+            value:
+              stats?.impPct?.value != null
+                ? `${(+stats.impPct.value).toFixed(1)}%`
+                : "—",
+            sub: stats?.impPct?.date,
+          },
+          {
+            label: "Exports (US$)",
+            value: fmtMoney(stats?.expUsd?.value ?? null),
+            sub: stats?.expUsd?.date,
+          },
+          {
+            label: "Imports (US$)",
+            value: fmtMoney(stats?.impUsd?.value ?? null),
+            sub: stats?.impUsd?.date,
+          },
+        ];
+        setWbCards(cards);
+      })
+      .catch(() => {
+        // silent; if it fails we just hide the block
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <main className="min-h-screen">
@@ -80,9 +140,9 @@ export default function HomeLandingClient() {
                 GSOS – Global Supply Operating System
               </h1>
               <p className="text-gray-700 mt-5 text-lg">
-                Turn fragmented trade data into decisions. Ingest your docs,
-                analyze bottlenecks with AI, act on replenishment & finance
-                recommendations, and scale cross-border — with confidence and proof.
+                Turn fragmented trade data into decisions. Ingest your docs, analyze bottlenecks
+                with AI, act on replenishment & finance recommendations, and scale cross-border —
+                with confidence and proof.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -129,30 +189,30 @@ export default function HomeLandingClient() {
         </div>
       </section>
 
-      {/* CRISIS */}
+      {/* CRISIS (requested text) */}
       <section id="crisis" className="py-16 px-6 max-w-5xl mx-auto">
         <h2 className="text-3xl font-bold mb-6">
           The Global Trade Crisis: A $32 Trillion Opportunity
         </h2>
         <div className="prose max-w-none prose-indigo">
           <p>
-            Global trade has shaped civilizations for millennia—from Silk Road caravans to
-            Dutch East India Companies. Yet despite breathtaking technological advances,
-            today&apos;s <strong>$32 trillion</strong> trade ecosystem remains astonishingly
-            fragmented, paper-heavy, and fraud-prone.
+            Global trade has shaped civilizations for millennia—from Silk Road caravans to Dutch
+            East India Companies. Yet despite breathtaking technological advances, today&apos;s{" "}
+            <strong>$32 trillion</strong> trade ecosystem remains astonishingly fragmented,
+            paper-heavy, and fraud-prone.
           </p>
           <p>
             The costs are staggering: over <strong>$50 billion</strong> in annual trade finance
-            fraud, a <strong>$2.5 trillion</strong> financing gap for legitimate exporters, and
-            <strong> 10–15%</strong> of customs revenue lost to under-invoicing. These aren&apos;t
+            fraud, a <strong>$2.5 trillion</strong> financing gap for legitimate exporters, and{" "}
+            <strong>10–15%</strong> of customs revenue lost to under-invoicing. These aren&apos;t
             marginal issues—they&apos;re systemic weaknesses that erode global GDP and
             disproportionately hurt developing economies.
           </p>
           <p>
-            <strong>India</strong> exemplifies this paradox. While leading in digital
-            infrastructure with Aadhaar and UPI, its trade ecosystem still sees exporters waiting
-            30–90 days for payments and SMEs—contributing 45% of exports—excluded from affordable
-            trade finance due to documentation mistrust.
+            <strong>India</strong> exemplifies this paradox. While leading in digital infrastructure
+            with Aadhaar and UPI, its trade ecosystem still sees exporters waiting 30–90 days for
+            payments and SMEs—contributing 45% of exports—excluded from affordable trade finance due
+            to documentation mistrust.
           </p>
         </div>
 
@@ -165,6 +225,25 @@ export default function HomeLandingClient() {
           ))}
         </div>
       </section>
+
+      {/* World Bank Snapshot (shows only if API succeeds) */}
+      {wbCards && (
+        <section className="py-10 px-6 max-w-5xl mx-auto">
+          <h3 className="text-2xl font-semibold mb-4">World Bank Snapshot — India</h3>
+          <div className="grid md:grid-cols-4 gap-6">
+            {wbCards.map((c) => (
+              <div
+                key={c.label}
+                className="rounded-xl border p-5 bg-white shadow-sm hover:shadow transition"
+              >
+                <div className="text-xl font-bold">{c.value}</div>
+                <div className="text-gray-700 mt-1">{c.label}</div>
+                {c.sub && <div className="text-gray-500 text-sm mt-1">{c.sub}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* How GSOS Works — Interactive Stepper */}
       <section className="bg-indigo-50 py-20 px-6">
@@ -216,10 +295,17 @@ export default function HomeLandingClient() {
         </div>
 
         <style jsx>{`
-          .animate-bounce-slow { animation: bounce 3s infinite; }
+          .animate-bounce-slow {
+            animation: bounce 3s infinite;
+          }
           @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-4px); }
+            0%,
+            100% {
+              transform: translateY(0);
+            }
+            50% {
+              transform: translateY(-4px);
+            }
           }
         `}</style>
       </section>
@@ -227,9 +313,7 @@ export default function HomeLandingClient() {
       {/* CTA */}
       <section className="py-16 px-6">
         <div className="max-w-5xl mx-auto bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl text-white p-8 md:p-12 shadow-lg">
-          <h3 className="text-2xl md:text-3xl font-bold">
-            Ready to see your savings & scale map?
-          </h3>
+          <h3 className="text-2xl md:text-3xl font-bold">Ready to see your savings & scale map?</h3>
           <p className="mt-2 text-indigo-100">
             Take the readiness survey — get grounded insights, simulated savings, and a near-term
             GSOS plan with citations.
@@ -251,7 +335,7 @@ export default function HomeLandingClient() {
         </div>
       </section>
 
-      {/* Optional: video placeholder */}
+      {/* Optional video (safe if missing) */}
       <section className="py-8 px-6 max-w-5xl mx-auto">
         <h3 className="text-xl font-semibold mb-4">Inside GSOS (Product Walkthrough)</h3>
         <div className="aspect-video rounded-xl overflow-hidden border bg-black">
