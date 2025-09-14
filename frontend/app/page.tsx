@@ -1,94 +1,284 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 
-// Example: fetch problems from API (mock for now)
-async function fetchTradeProblems() {
-  try {
-    const res = await fetch("https://api.publicapis.org/entries"); // placeholder
-    if (!res.ok) return [];
-    const data = await res.json();
-    // In reality, map to real trade issues
-    return data.entries.slice(0, 5).map((e: any) => e.Description);
-  } catch {
-    return ["Global container shortages", "Tariff disputes", "Currency volatility"];
-  }
-}
+type StepKey = "ingest" | "analyze" | "act" | "scale";
 
-export default function LandingPage() {
-  const [problems, setProblems] = useState<string[]>([]);
+const STEP_CONTENT: Record<
+  StepKey,
+  { title: string; icon: string; desc: string; details: string[] }
+> = {
+  ingest: {
+    title: "Ingest",
+    icon: "📥",
+    desc:
+      "GSOS connects your ERP, invoices, shipment docs, banking and marketplace feeds — automatically.",
+    details: [
+      "One-click connectors for Tally/Zoho/QuickBooks, Shopify/Woo, and S3/Drive.",
+      "Auto OCR + doc normalization for invoices, POs, e-way bills, BOL, AWB.",
+      "Webhook-based deltas so you’re always up-to-date (no manual syncs).",
+    ],
+  },
+  analyze: {
+    title: "Analyze",
+    icon: "📊",
+    desc:
+      "AI benchmarks your bottlenecks against real trade patterns and internal baselines.",
+    details: [
+      "Pattern mining across stockouts, overstock, turns, OTD & lead-time variance.",
+      "RAG over your docs for explainable decisions (citations by paragraph).",
+      "Risk scoring for SKUs/suppliers/channels with seasonality awareness.",
+    ],
+  },
+  act: {
+    title: "Act",
+    icon: "⚡",
+    desc:
+      "Surface replenishment, finance routes, and compliance workflows in one place.",
+    details: [
+      "Smart replenishment (ABC/XYZ, MOQ/MOQ), purchase triggers, and allocation.",
+      "Finance routing: map invoices to credit lines or discounting partners.",
+      "Compliance flows: auto-check HS codes, valuation flags, and doc gaps.",
+    ],
+  },
+  scale: {
+    title: "Scale",
+    icon: "🚀",
+    desc:
+      "Unlock faster payments, better margins, and cross-border readiness with confidence.",
+    details: [
+      "Faster working capital cycles via structured, trusted data.",
+      "Channel expansion playbooks: what to launch, where, and when.",
+      "Executive scorecards & alerts — make decisions in hours, not weeks.",
+    ],
+  },
+};
 
-  useEffect(() => {
-    fetchTradeProblems().then(setProblems);
-  }, []);
+export default function HomePage() {
+  const [openStep, setOpenStep] = useState<StepKey | null>(null);
+
+  const stats = useMemo(
+    () => [
+      { label: "Global Trade", value: "$32T", sub: "Total goods & services" },
+      { label: "Financing Gap", value: "$2.5T", sub: "For legitimate exporters" },
+      { label: "Fraud / yr", value: "$50B+", sub: "Trade finance fraud" },
+      { label: "Customs Leakage", value: "10–15%", sub: "Under-invoicing losses" },
+    ],
+    []
+  );
 
   return (
-    <div className="flex flex-col">
-      {/* Hero */}
-      <section className="relative bg-gradient-to-r from-indigo-600 to-purple-700 text-white py-20 px-6 text-center">
-        <h1 className="text-4xl md:text-6xl font-bold mb-4 animate-pulse">
-          Global Supply Operating System (GSOS)
-        </h1>
-        <p className="text-lg md:text-2xl mb-6 max-w-3xl mx-auto">
-          Fix inefficiencies, break silos, and scale your global trade with AI-driven intelligence.
-        </p>
-        <Link
-          href="/survey"
-          className="bg-white text-indigo-700 font-semibold px-6 py-3 rounded-lg shadow-lg hover:bg-gray-200 transition"
-        >
-          Take the Readiness Survey
-        </Link>
-        {/* Flashfile effect */}
-        <div className="absolute inset-0 bg-[url('/hero-flash.gif')] opacity-10 bg-cover bg-center pointer-events-none" />
-      </section>
+    <main className="min-h-screen">
+      {/* HERO */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50 to-white">
+        <div className="max-w-6xl mx-auto px-6 py-20">
+          <div className="grid md:grid-cols-2 gap-10 items-center">
+            <div>
+              <h1 className="text-4xl md:text-5xl font-bold leading-tight">
+                GSOS – Global Supply Operating System
+              </h1>
+              <p className="text-gray-700 mt-5 text-lg">
+                Turn fragmented trade data into decisions. Ingest your docs,
+                analyze bottlenecks with AI, act on replenishment & finance
+                recommendations, and scale cross-border — with confidence and proof.
+              </p>
 
-      {/* Problems ticker */}
-      <section className="py-12 bg-gray-50">
-        <h2 className="text-2xl font-semibold text-center mb-6">Trade Challenges Today</h2>
-        <div className="overflow-hidden h-12 relative">
-          <div className="animate-marquee whitespace-nowrap">
-            {problems.map((p, i) => (
-              <span key={i} className="mx-8 text-lg font-medium text-gray-700">
-                🚩 {p}
-              </span>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link
+                  href="/survey"
+                  className="inline-flex items-center px-5 py-3 rounded-xl bg-black text-white hover:bg-gray-900"
+                >
+                  Take the Readiness Survey
+                </Link>
+                <a
+                  href="#crisis"
+                  className="inline-flex items-center px-5 py-3 rounded-xl border hover:bg-gray-50"
+                >
+                  Why GSOS now?
+                </a>
+              </div>
+            </div>
+
+            <div className="relative">
+              <Image
+                src="/hero-pipeline.png"
+                alt="GSOS pipeline"
+                width={900}
+                height={650}
+                className="rounded-2xl shadow-lg w-full h-auto"
+                priority
+              />
+            </div>
+          </div>
+
+          {/* Quick stats */}
+          <div className="grid md:grid-cols-4 gap-6 mt-14">
+            {stats.map((s) => (
+              <div
+                key={s.label}
+                className="rounded-2xl border p-5 bg-white shadow-sm hover:shadow transition"
+              >
+                <div className="text-3xl font-extrabold">{s.value}</div>
+                <div className="text-gray-700 font-medium mt-1">{s.label}</div>
+                <div className="text-gray-500 text-sm mt-1">{s.sub}</div>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Posters / visuals */}
-      <section className="py-16 px-6 grid md:grid-cols-3 gap-6">
-        <div className="bg-white shadow rounded-xl p-6 text-center">
-          <img src="/poster1.png" alt="Trade poster" className="mx-auto h-32 mb-4" />
-          <p className="text-gray-600">Delayed shipments affect 40% of retailers monthly.</p>
+      {/* CRISIS (requested text) */}
+      <section id="crisis" className="py-16 px-6 max-w-5xl mx-auto">
+        <h2 className="text-3xl font-bold mb-6">
+          The Global Trade Crisis: A $32 Trillion Opportunity
+        </h2>
+        <div className="prose max-w-none prose-indigo">
+          <p>
+            Global trade has shaped civilizations for millennia—from Silk Road caravans to
+            Dutch East India Companies. Yet despite breathtaking technological advances,
+            today&apos;s <strong>$32 trillion</strong> trade ecosystem remains astonishingly
+            fragmented, paper-heavy, and fraud-prone.
+          </p>
+          <p>
+            The costs are staggering: over <strong>$50 billion</strong> in annual trade finance
+            fraud, a <strong>$2.5 trillion</strong> financing gap for legitimate exporters, and
+            <strong> 10–15%</strong> of customs revenue lost to under-invoicing. These aren&apos;t
+            marginal issues—they&apos;re systemic weaknesses that erode global GDP and
+            disproportionately hurt developing economies.
+          </p>
+          <p>
+            <strong>India</strong> exemplifies this paradox. While leading in digital
+            infrastructure with Aadhaar and UPI, its trade ecosystem still sees exporters waiting
+            30–90 days for payments and SMEs—contributing 45% of exports—excluded from affordable
+            trade finance due to documentation mistrust.
+          </p>
         </div>
-        <div className="bg-white shadow rounded-xl p-6 text-center">
-          <img src="/poster2.png" alt="Poster" className="mx-auto h-32 mb-4" />
-          <p className="text-gray-600">SMEs lose billions due to poor demand forecasting.</p>
-        </div>
-        <div className="bg-white shadow rounded-xl p-6 text-center">
-          <img src="/poster3.png" alt="Poster" className="mx-auto h-32 mb-4" />
-          <p className="text-gray-600">Cross-border paperwork slows growth by 20%.</p>
-        </div>
-      </section>
 
-      {/* How GSOS helps */}
-      <section className="bg-indigo-50 py-16 px-6">
-        <h2 className="text-2xl font-semibold text-center mb-8">How GSOS Helps</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          {[
-            ["Inventory Optimization", "Reduce stockouts & overstock"],
-            ["Smart Integrations", "Connect ERP, e-comm, finance seamlessly"],
-            ["AI Insights", "Forecast demand and simulate savings"],
-          ].map(([title, desc]) => (
-            <div key={title} className="bg-white p-6 shadow rounded-lg text-center">
-              <h3 className="font-semibold text-lg mb-2">{title}</h3>
-              <p className="text-gray-600">{desc}</p>
+        {/* Optional posters (only render if present in /public) */}
+        <div className="grid md:grid-cols-3 gap-6 mt-10">
+          {["/poster1.png", "/poster2.png", "/poster3.png"].map((p) => (
+            <div key={p} className="rounded-xl border overflow-hidden bg-white">
+              {/* Even if image missing, Next will 404 safely on dev; fine for now */}
+              <Image
+                src={p}
+                alt="GSOS poster"
+                width={800}
+                height={600}
+                className="w-full h-auto"
+              />
             </div>
           ))}
         </div>
       </section>
-    </div>
+
+      {/* How GSOS Works — Interactive Stepper */}
+      <section className="bg-indigo-50 py-20 px-6">
+        <h2 className="text-3xl font-bold text-center mb-12">How GSOS Works</h2>
+
+        <div className="relative max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-4 gap-6">
+            {(Object.keys(STEP_CONTENT) as StepKey[]).map((key, i) => {
+              const step = STEP_CONTENT[key];
+              const isOpen = openStep === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setOpenStep(isOpen ? null : key)}
+                  className={`relative text-left bg-white rounded-2xl p-6 shadow-md transition hover:shadow-xl border ${
+                    isOpen ? "ring-2 ring-indigo-400" : ""
+                  }`}
+                >
+                  <div className="text-4xl mb-4 animate-bounce-slow">{step.icon}</div>
+                  <h3 className="font-semibold text-lg mb-1">
+                    {i + 1}. {step.title}
+                  </h3>
+                  <p className="text-gray-600 text-sm leading-relaxed">{step.desc}</p>
+                  {/* connector */}
+                  {i < 3 && (
+                    <div className="hidden md:block absolute top-1/2 right-[-1.25rem] w-5 h-[2px] bg-indigo-400" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Expanded panel */}
+          <div className="mt-8">
+            {openStep && (
+              <div className="bg-white rounded-2xl border shadow-md p-6 md:p-8 transition">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">{STEP_CONTENT[openStep].icon}</span>
+                  <h3 className="text-xl font-semibold">{STEP_CONTENT[openStep].title}</h3>
+                </div>
+                <p className="text-gray-700 mb-4">{STEP_CONTENT[openStep].desc}</p>
+                <ul className="list-disc ml-6 space-y-2 text-gray-700">
+                  {STEP_CONTENT[openStep].details.map((d) => (
+                    <li key={d}>{d}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <style jsx>{`
+          .animate-bounce-slow {
+            animation: bounce 3s infinite;
+          }
+          @keyframes bounce {
+            0%,
+            100% {
+              transform: translateY(0);
+            }
+            50% {
+              transform: translateY(-4px);
+            }
+          }
+        `}</style>
+      </section>
+
+      {/* CTA */}
+      <section className="py-16 px-6">
+        <div className="max-w-5xl mx-auto bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl text-white p-8 md:p-12 shadow-lg">
+          <h3 className="text-2xl md:text-3xl font-bold">
+            Ready to see your savings & scale map?
+          </h3>
+          <p className="mt-2 text-indigo-100">
+            Take the readiness survey — get grounded insights, simulated savings, and a near-term
+            GSOS plan with citations.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/survey"
+              className="inline-flex items-center px-5 py-3 rounded-xl bg-white text-indigo-700 font-medium hover:bg-indigo-50"
+            >
+              Start the Survey
+            </Link>
+            <a
+              href="#crisis"
+              className="inline-flex items-center px-5 py-3 rounded-xl border border-white/40 hover:bg-white/10"
+            >
+              Learn More
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* Optional: video placeholders (swap URLs when ready) */}
+      <section className="py-8 px-6 max-w-5xl mx-auto">
+        <h3 className="text-xl font-semibold mb-4">Inside GSOS (Product Walkthrough)</h3>
+        <div className="aspect-video rounded-xl overflow-hidden border bg-black">
+          {/* Replace src with your uploaded MP4 once available */}
+          <video
+            className="w-full h-full"
+            controls
+            poster="/video-poster.png"
+            src="/videos/gsos-overview.mp4"
+          />
+        </div>
+      </section>
+    </main>
   );
 }
