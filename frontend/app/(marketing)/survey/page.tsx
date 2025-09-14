@@ -1,3 +1,4 @@
+// frontend/app/(marketing)/survey/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -28,7 +29,6 @@ export default function SurveyPage() {
     generateSurvey(role, 12)
       .then((data) => {
         if (!alive) return;
-        // ⬇️ Assert type so TS narrows q.type to the literal union
         setQuestions(data.questions as GeneratedQuestion[]);
         setAnswers({});
         setResult(null);
@@ -45,15 +45,11 @@ export default function SurveyPage() {
     setAnswers((prev) => {
       const curr = (prev[id] as string[]) || [];
       if (multi) {
-        // toggle
-        if (curr.includes(option)) {
-          return { ...prev, [id]: curr.filter((x) => x !== option) };
-        }
-        return { ...prev, [id]: [...curr, option] };
-      } else {
-        // single
-        return { ...prev, [id]: [option] };
+        return curr.includes(option)
+          ? { ...prev, [id]: curr.filter((x) => x !== option) }
+          : { ...prev, [id]: [...curr, option] };
       }
+      return { ...prev, [id]: [option] };
     });
   };
 
@@ -70,26 +66,29 @@ export default function SurveyPage() {
     setError(null);
     setSubmitting(true);
     try {
-      // Build payload with literal 'type' values so TS narrows to the union
-      const payload: AnalyzePayload[] = questions.flatMap((q) => {
+      const payload: AnalyzePayload[] = [];
+
+      for (const q of questions) {
         const t = q.type as "mcq" | "likert" | "short_text";
-        switch (t) {
-          case "mcq": {
-            const vals = (answers[q.id] ?? []) as string[];
-            return vals.length ? [{ id: q.id, type: "mcq" as const, values: vals }] : [];
-          }
-          case "likert": {
-            const num = Number(answers[q.id]);
-            return Number.isFinite(num) ? [{ id: q.id, type: "likert" as const, value: num }] : [];
-          }
-          case "short_text": {
-            const txt = String(answers[q.id] ?? "").trim();
-            return txt ? [{ id: q.id, type: "short_text" as const, value: txt }] : [];
-          }
-          default:
-            return [];
+
+        if (t === "mcq") {
+          const vals = (answers[q.id] ?? []) as string[];
+          if (vals.length) payload.push({ id: q.id, type: "mcq", values: vals });
+          continue;
         }
-      });
+
+        if (t === "likert") {
+          const num = Number(answers[q.id]);
+          if (Number.isFinite(num)) payload.push({ id: q.id, type: "likert", value: num });
+          continue;
+        }
+
+        if (t === "short_text") {
+          const txt = String(answers[q.id] ?? "").trim();
+          if (txt) payload.push({ id: q.id, type: "short_text", value: txt });
+          continue;
+        }
+      }
 
       const data = await analyzeSurvey(role, payload);
       setResult(data as AnalyzeResult);
@@ -122,22 +121,21 @@ export default function SurveyPage() {
       </div>
 
       {loading && <p>Loading survey…</p>}
-      {error && (
-        <p className="text-red-600 mb-4">
-          {error}
-        </p>
-      )}
+      {error && <p className="text-red-600 mb-4">{error}</p>}
 
       {hasQuestions && (
         <div className="space-y-6">
           {questions.map((q, idx) => {
             const key = `${q.id}_${idx}`;
+
             if (q.type === "mcq") {
               const isMulti = Boolean(q.multi);
               const selected = (answers[q.id] as string[]) || [];
               return (
                 <div key={key} className="border rounded p-4">
-                  <p className="font-medium mb-2">{idx + 1}. {q.prompt}</p>
+                  <p className="font-medium mb-2">
+                    {idx + 1}. {q.prompt}
+                  </p>
                   <div className="space-y-2">
                     {(q.options ?? []).map((opt) => {
                       const id = `${q.id}_${opt}`;
@@ -176,7 +174,9 @@ export default function SurveyPage() {
               const val = Number(answers[q.id] ?? Math.ceil((min + max) / 2));
               return (
                 <div key={key} className="border rounded p-4">
-                  <p className="font-medium mb-2">{idx + 1}. {q.prompt}</p>
+                  <p className="font-medium mb-2">
+                    {idx + 1}. {q.prompt}
+                  </p>
                   <div className="flex items-center gap-3">
                     <span className="text-sm">{min}</span>
                     <input
@@ -198,7 +198,9 @@ export default function SurveyPage() {
               const txt = String(answers[q.id] ?? "");
               return (
                 <div key={key} className="border rounded p-4">
-                  <p className="font-medium mb-2">{idx + 1}. {q.prompt}</p>
+                  <p className="font-medium mb-2">
+                    {idx + 1}. {q.prompt}
+                  </p>
                   <textarea
                     className="w-full border rounded px-3 py-2"
                     rows={4}
@@ -260,7 +262,9 @@ export default function SurveyPage() {
                   <div className="font-medium">{p.name}</div>
                   <div className="text-sm text-gray-700 mb-2">{p.price_range}</div>
                   <ul className="list-disc ml-5 text-sm">
-                    {p.features.map((f) => <li key={f}>{f}</li>)}
+                    {p.features.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
                   </ul>
                   <div className="text-xs text-gray-500 mt-2">Best for: {p.fit}</div>
                 </div>
@@ -273,7 +277,9 @@ export default function SurveyPage() {
             <p className="mb-2">{result.onboarding.question}</p>
             <div className="flex flex-wrap gap-2">
               {result.onboarding.options.map((o) => (
-                <span key={o} className="px-3 py-1 rounded border">{o}</span>
+                <span key={o} className="px-3 py-1 rounded border">
+                  {o}
+                </span>
               ))}
             </div>
           </div>
