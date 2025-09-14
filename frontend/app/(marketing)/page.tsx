@@ -1,10 +1,9 @@
 // frontend/app/(marketing)/page.tsx
 import Image from "next/image";
-import dynamic from "next/dynamic";
 
-// Load interactive bits as client components
-const VideoCarousel = dynamic(() => import("@/components/VideoCarousel"), { ssr: false });
-const GsosStepper = dynamic(() => import("@/components/Stepper"), { ssr: false });
+// Import client components directly (they have "use client" inside)
+import VideoCarousel from "@/components/VideoCarousel";
+import GsosStepper from "@/components/Stepper";
 
 export default function LandingPage() {
   return (
@@ -37,7 +36,6 @@ export default function LandingPage() {
           </div>
 
           <div className="relative aspect-video rounded-2xl bg-zinc-800/50 ring-1 ring-zinc-700">
-            {/* Simple poster collage */}
             <div className="absolute inset-4 grid grid-cols-3 gap-3">
               <div className="relative rounded-lg overflow-hidden">
                 <Image src="/poster1.png" alt="Poster 1" fill className="object-cover" />
@@ -53,7 +51,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* STATS (static, SSR-safe) */}
+      {/* STATS */}
       <section className="bg-white">
         <div className="mx-auto max-w-6xl px-6 py-14 grid gap-6 md:grid-cols-3">
           <div className="rounded-2xl border p-6">
@@ -90,7 +88,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* “Global Trade Crisis” narrative (no duplication) */}
+      {/* CRISIS NARRATIVE */}
       <section className="bg-white">
         <div className="mx-auto max-w-6xl px-6 py-12 grid gap-8 md:grid-cols-2">
           <div className="rounded-2xl border p-6">
@@ -128,7 +126,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* HOW GSOS WORKS (interactive stepper, client) */}
+      {/* HOW GSOS WORKS (client) */}
       <section id="how" className="bg-white">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <h2 className="text-2xl font-semibold">How GSOS Works</h2>
