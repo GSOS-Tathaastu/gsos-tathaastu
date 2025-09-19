@@ -1,58 +1,49 @@
 // frontend/app/api/investors/ask/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import clientPromise from "@/lib/mongo";
-import { openai } from "@/lib/openai";
+import { NextResponse } from "next/server";
+import { getDbOrNull } from "@/lib/mongo";
 
-const DB = process.env.MONGODB_DB || "gsos";
+type AskBody = {
+  name?: string;
+  email?: string;
+  company?: string;
+  question?: string;
+};
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const { name = "", email = "", amount = "", equity = "", question = "" } = body;
+    const body = (await req.json()) as AskBody;
 
-    if (!name || !email) {
-      return NextResponse.json({ error: "name and email are required" }, { status: 400 });
+    if (!body?.name || !body?.email || !body?.question) {
+      return NextResponse.json(
+        { ok: false, error: "Missing required fields: name, email, question" },
+        { status: 400 }
+      );
     }
 
-    const client = await clientPromise;
-    const db = client.db(DB);
-    const col = db.collection("investor_questions");
-
-    // Optional AI answer – only if OPENAI_API_KEY is present
-    let aiAnswer: string | undefined;
-    if (process.env.OPENAI_API_KEY && question) {
-      const r = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are GSOS investor assistant. Answer briefly using 3–5 bullets plus a one-line summary. If details are confidential, add: 'Confidential Information, will be shared during in-person meeting'.",
-          },
-          { role: "user", content: question },
-        ],
-        temperature: 0.3,
-      });
-      aiAnswer = r.choices?.[0]?.message?.content || "";
+    const db = await getDbOrNull();
+    if (!db) {
+      return NextResponse.json(
+        { ok: false, error: "Database not connected (set MONGO_URI & MONGO_DB)" },
+        { status: 200 }
+      );
     }
 
     const doc = {
-      name,
-      email: String(email).toLowerCase().trim(),
-      amount,
-      equity,
-      question,
-      answer: aiAnswer,
+      name: String(body.name).trim(),
+      email: String(body.email).trim().toLowerCase(),
+      company: String(body.company || "").trim(),
+      question: String(body.question).trim(),
       createdAt: new Date(),
-      meta: {
-        ip: req.headers.get("x-forwarded-for") || "local",
-        ua: req.headers.get("user-agent") || "",
-      },
+      source: "investors/ask",
     };
-    await col.insertOne(doc);
 
-    return NextResponse.json({ ok: true, answer: aiAnswer || null });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    await db.collection("investor_questions").insertOne(doc);
+
+    return NextResponse.json({ ok: true, id: doc.email + ":" + doc.createdAt.toISOString() });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }

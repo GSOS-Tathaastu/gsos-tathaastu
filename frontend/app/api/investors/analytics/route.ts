@@ -6,7 +6,6 @@ export async function GET() {
   try {
     const db = await getDbOrNull();
 
-    // Graceful response if DB isn't configured/connected
     if (!db) {
       return NextResponse.json(
         {
@@ -18,10 +17,8 @@ export async function GET() {
       );
     }
 
-    // Count safely for the collections we care about
-    const names = new Set((await db.listCollections().toArray()).map(c => c.name));
-    const safeCount = async (name: string) =>
-      names.has(name) ? db.collection(name).countDocuments({}) : 0;
+    const names = new Set((await db.listCollections().toArray()).map((c) => c.name));
+    const safeCount = async (name: string) => (names.has(name) ? db.collection(name).countDocuments({}) : 0);
 
     const [submissions, companies, intents, questions] = await Promise.all([
       safeCount("submissions"),
