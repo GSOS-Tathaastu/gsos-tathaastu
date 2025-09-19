@@ -1,42 +1,25 @@
-import { NextRequest, NextResponse } from "next/server";
-
-const ADMIN_COOKIE = "auth_admin";
-const INVESTOR_COOKIE = "auth_investor";
+// frontend/middleware.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export function middleware(req: NextRequest) {
-  const { pathname, search } = req.nextUrl;
+  const url = req.nextUrl.clone();
 
-  // always allow these
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/static") ||
-    pathname.startsWith("/favicon") ||
-    pathname === "/login" ||
-    pathname.startsWith("/api/auth/login") ||
-    pathname.startsWith("/api/health") ||
-    pathname.startsWith("/api/ping/")
-  ) {
-    return NextResponse.next();
-  }
+  const adminCookie = req.cookies.get("auth_admin")?.value;
+  const invCookie = req.cookies.get("auth_investor")?.value;
 
-  // protect /admin
-  if (pathname.startsWith("/admin")) {
-    const ok = req.cookies.get(ADMIN_COOKIE)?.value === "1";
-    if (!ok) {
-      const url = req.nextUrl.clone();
+  if (url.pathname.startsWith("/admin")) {
+    if (adminCookie !== "1") {
       url.pathname = "/login";
-      url.search = `?to=${encodeURIComponent(pathname + (search || ""))}&area=admin`;
+      url.searchParams.set("area", "admin");
       return NextResponse.redirect(url);
     }
   }
 
-  // protect /investors
-  if (pathname.startsWith("/investors")) {
-    const ok = req.cookies.get(INVESTOR_COOKIE)?.value === "1";
-    if (!ok) {
-      const url = req.nextUrl.clone();
+  if (url.pathname.startsWith("/investors")) {
+    if (invCookie !== "1") {
       url.pathname = "/login";
-      url.search = `?to=${encodeURIComponent(pathname + (search || ""))}&area=investor`;
+      url.searchParams.set("area", "investor");
       return NextResponse.redirect(url);
     }
   }
@@ -45,5 +28,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/investors/:path*", "/login", "/api/:path*"],
+  matcher: ["/admin/:path*", "/investors/:path*"],
 };

@@ -2,106 +2,59 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getDbOrNull } from "@/lib/mongo";
-import { getSurvey } from "@/lib/questionBank";
-import type { SurveySession } from "@/lib/types";
-
-type Body = {
-  sessionId?: string;
-  email?: string;
-  role?: string;
-  country?: string;
-};
+import { generateQuestionnaire } from "@/lib/questionGen";
+import type { SurveySession, Question } from "@/lib/types";
 
 export async function POST(req: Request) {
   try {
-    const { sessionId: incomingId, email = "", role = "retailer", country = "India" } =
-      (await req.json()) as Body;
-
+    const { sessionId, email, role, country, seedNotes } = await req.json();
     const db = await getDbOrNull();
-    if (!db) {
-      return NextResponse.json(
-        { ok: false, error: "Database not connected (set MONGO_URI & MONGO_DB)" },
-        { status: 200 }
-      );
-    }
+    if (!db) return NextResponse.json({ ok: false, error: "DB not connected" }, { status: 200 });
 
-    const sessions = db.collection<SurveySession>("survey_sessions");
-    let sessionId = incomingId;
+    const sessions = db.collection("survey_sessions");
     let session: SurveySession | null = null;
 
-    // load or create session
     if (sessionId) {
       try {
-        session = await sessions.findOne({ _id: new ObjectId(sessionId) });
+        session = (await sessions.findOne({ _id: new ObjectId(sessionId) })) as any;
       } catch {
         session = null;
       }
     }
+
     if (!session) {
-      const doc: Partial<SurveySession> = {
-        email: email.toLowerCase().trim(),
+      // new session → generate questions
+      const { questions } = await generateQuestionnaire({ role, country, company: "", email, seedNotes });
+      const newSession: SurveySession = {
+        email: email?.toLowerCase().trim() || "",
         role,
         country,
         status: "in_progress",
         startedAt: new Date(),
         answers: [],
+        questions,
       };
-      const created = await sessions.insertOne(doc as any);
-      sessionId = created.insertedId.toString();
-      session = { _id: created.insertedId, ...(doc as any) } as SurveySession;
-    } else {
-      // update meta
-      await sessions.updateOne(
-        { _id: new ObjectId(sessionId!) },
-        {
-          $set: {
-            email: email ? email.toLowerCase().trim() : ((session as any).email || ""),
-            role,
-            country,
-            updatedAt: new Date(),
-          },
-        }
-      );
+      const created = await sessions.insertOne(newSession);
+      session = { ...newSession, _id: created.insertedId };
     }
 
-    // fetch questions (use any[] to avoid type mismatch)
-    const def = getSurvey(role, country);
-    const questions: any[] = def?.questions || [];
-
-    const answered = Array.isArray((session as any).answers)
-      ? (session as any).answers.length
-      : 0;
-    const total = questions.length;
+    const answered = session.answers?.length || 0;
+    const total = session.questions?.length || 0;
 
     if (answered >= total) {
-      await sessions.updateOne(
-        { _id: new ObjectId(sessionId!) },
-        { $set: { status: "completed", completedAt: new Date() } }
-      );
-      return NextResponse.json({
-        ok: true,
-        finished: true,
-        sessionId,
-        total,
-        answered,
-        next: null,
-      });
+      return NextResponse.json({ ok: true, finished: true, sessionId: session._id.toString() });
     }
 
-    const nextQ = questions[answered] || null;
+    const nextQ: Question | null = session.questions?.[answered] || null;
 
     return NextResponse.json({
       ok: true,
-      finished: false,
-      sessionId,
-      total,
-      answered,
+      sessionId: session._id.toString(),
       next: nextQ,
+      answered,
+      total,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Survey next failed" }, { status: 500 });
   }
 }

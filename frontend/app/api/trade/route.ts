@@ -2,9 +2,7 @@
 import { NextResponse } from "next/server";
 import { getDbOrNull } from "@/lib/mongo";
 
-const DB = process.env.MONGODB_DB || "gsos";
 const COL = "trade_cache";
-const TTL_MINUTES = Number(process.env.TRADE_CACHE_TTL_MINUTES || "1440"); // 1 day
 
 export async function GET() {
   try {
@@ -25,20 +23,11 @@ export async function GET() {
       );
     }
 
-    const col = db.collection(COL);
-    const doc = await col.find({}).sort({ fetchedAt: -1 }).limit(1).next();
+    const doc = await db.collection(COL).find({}).sort({ fetchedAt: -1 }).limit(1).next();
 
     if (!doc) {
       return NextResponse.json(
-        {
-          updatedAt: null,
-          kpis: [
-            { label: "Global exports (USD)", value: "—" },
-            { label: "Global imports (USD)", value: "—" },
-            { label: "YoY growth", value: "—" },
-          ],
-          topFlows: [],
-        },
+        { updatedAt: null, kpis: [], topFlows: [] },
         { headers: { "Cache-Control": "no-store" } }
       );
     }
@@ -52,9 +41,6 @@ export async function GET() {
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { error: "trade_cache_failed", detail: e.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "trade_cache_failed", detail: e.message }, { status: 500 });
   }
 }

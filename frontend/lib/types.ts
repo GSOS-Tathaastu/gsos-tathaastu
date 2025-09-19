@@ -1,31 +1,40 @@
-export type LikertQ = { type: "likert"; min: number; max: number };
-export type MCQQ = { type: "mcq"; options: string[]; multi?: boolean };
-export type ShortTextQ = { type: "short_text" };
-export type QuestionMeta = (LikertQ | MCQQ | ShortTextQ) & { id: string; prompt: string };
+// frontend/lib/types.ts
+
+export type MCQQuestion = {
+  id: string;
+  type: "mcq";
+  prompt: string;
+  options: string[];
+  scale?: "likert-5" | "likert-7";
+};
+
+export type OpenQuestion = {
+  id: string;
+  type: "open";
+  prompt: string;
+  hint?: string;
+};
+
+export type Question = MCQQuestion | OpenQuestion;
 
 export type AnswerRecord = {
-  questionId: string;   // <-- add this
-  value: any;
-  meta?: any;
+  id: string;             // unique ID for answer
+  questionId: string;     // which question this maps to
+  value: any;             // the chosen option(s) or free text
+  ts: Date;               // timestamp of when it was answered
 };
 
 export type SurveySession = {
-  _id?: any;
-  email?: string;     // ✅ add this
-  role?: string;
-  country?: string;
-  status?: "in_progress" | "completed";
-  startedAt?: Date;
+  _id?: any;              // MongoDB ObjectId
+  email: string;
+  role: string;
+  country: string;
+  company?: string;
+  status: "in_progress" | "completed";
+  startedAt: Date;
   updatedAt?: Date;
   completedAt?: Date;
-  answers?: any[];
-  questions?: any[];
-};
-  seed?: string;
-  status: "active" | "completed" | "abandoned";
-  startedAt: Date;
-  completedAt?: Date;
-  currentBatch: QuestionMeta[]; // what’s currently shown to user
-  answers: AnswerRecord[];      // all answers so far
-  summary?: string;             // rolling summary for you (internal)
+  questions?: Question[]; // generated question set
+  answers: AnswerRecord[];
+  lastSimulation?: any;   // AI-generated simulation result
 };

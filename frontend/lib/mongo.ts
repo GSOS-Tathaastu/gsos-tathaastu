@@ -3,21 +3,13 @@ import { MongoClient, Db } from "mongodb";
 
 let cachedClient: MongoClient | null = null;
 
-/**
- * Returns a connected MongoClient or null if MONGO_URI is not set or connection fails.
- * Never throws during import; keeps the app booting even without Mongo.
- */
+/** Connects to MongoDB or returns null (never throws on import) */
 export async function getClientOrNull(): Promise<MongoClient | null> {
   const uri = process.env.MONGO_URI;
   if (!uri) return null;
-
   if (cachedClient) return cachedClient;
-
   try {
-    const client = new MongoClient(uri, {
-      // Add options as needed
-      // serverSelectionTimeoutMS: 3000,
-    });
+    const client = new MongoClient(uri);
     await client.connect();
     cachedClient = client;
     return cachedClient;
@@ -26,20 +18,9 @@ export async function getClientOrNull(): Promise<MongoClient | null> {
   }
 }
 
-/**
- * Returns a Db instance or null if not configured/connected.
- */
+/** Returns Db or null (db name from MONGO_DB, default 'gsos') */
 export async function getDbOrNull(): Promise<Db | null> {
   const client = await getClientOrNull();
   if (!client) return null;
-  const dbName = process.env.MONGO_DB || "gsos";
-  return client.db(dbName);
+  return client.db(process.env.MONGO_DB || "gsos");
 }
-
-/**
- * Backward compatibility: some code may import `clientPromise`.
- * This version NEVER throws on import. It resolves to a client or null.
- */
-export const clientPromise: Promise<MongoClient | null> = (async () => {
-  return await getClientOrNull();
-})();

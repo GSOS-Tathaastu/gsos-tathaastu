@@ -3,25 +3,24 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import GsosAnimation from "@/components/GsosAnimation";
 
 /* -------------------------
    GSOS Orbit Animation
 -------------------------- */
 function GsosAnimation() {
-  const ref = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const parentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const canvas = ref.current!;
+    const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    let width = 900;
-    let height = 460;
     let raf = 0;
 
     function resize() {
       const w = parentRef.current?.clientWidth ?? 900;
-      width = Math.min(1100, Math.max(640, w));
-      height = Math.round(width * 0.5);
+      const width = Math.min(1100, Math.max(640, w));
+      const height = Math.round(width * 0.5);
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
@@ -29,11 +28,10 @@ function GsosAnimation() {
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+
     resize();
     const ro = new ResizeObserver(resize);
     if (parentRef.current) ro.observe(parentRef.current);
-
-    const center = () => ({ x: width / 2, y: height / 2 });
 
     const nodes = [
       { label: "Identity", color: "#22c55e", baseAngle: 0 },
@@ -45,22 +43,31 @@ function GsosAnimation() {
     ];
 
     function draw(now: number) {
-      const t = now / 1000;
-      const { x: cx, y: cy } = center();
+      const { width, height } = canvas;
+      const cx = width / 2;
+      const cy = height / 2;
       ctx.clearRect(0, 0, width, height);
 
       const orbitR = Math.min(width, height) * 0.28;
-      const pts = nodes.map((n, i) => {
+      const t = now / 1000;
+
+      nodes.forEach((n, i) => {
         const ang =
           ((n.baseAngle + i * 0) * Math.PI) / 180 +
           t * 0.4 +
           Math.sin(t * 0.6 + i) * 0.06;
-        return {
-          ...n,
-          x: cx + Math.cos(ang) * orbitR,
-          y: cy + Math.sin(ang) * orbitR,
-          ang,
-        };
+        const x = cx + Math.cos(ang) * orbitR;
+        const y = cy + Math.sin(ang) * orbitR;
+
+        ctx.beginPath();
+        ctx.fillStyle = n.color;
+        ctx.arc(x, y, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#111827";
+        ctx.font = "600 12px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(n.label, x, y + 30);
       });
 
       // center hub
@@ -72,25 +79,14 @@ function GsosAnimation() {
       ctx.fillStyle = "white";
       ctx.font = "600 12px Inter, sans-serif";
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
       ctx.fillText("GSOS", cx, cy - 7);
       ctx.font = "500 10px Inter, sans-serif";
       ctx.fillText("Core", cx, cy + 9);
 
-      pts.forEach((p) => {
-        ctx.beginPath();
-        ctx.fillStyle = p.color;
-        ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = "#111827";
-        ctx.font = "600 12px Inter, sans-serif";
-        ctx.fillText(p.label, p.x, p.y + 30);
-      });
-
       raf = requestAnimationFrame(draw);
     }
     raf = requestAnimationFrame(draw);
+
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -100,13 +96,66 @@ function GsosAnimation() {
   return (
     <div
       ref={parentRef}
-      className="w-full rounded-2xl border bg-white shadow-sm p-4"
+      className="w-full rounded-2xl border bg-white shadow p-4"
     >
       <h3 className="text-xl font-semibold mb-2 text-gray-900">
         How GSOS Orchestrates Trust
       </h3>
-      <canvas ref={ref} className="w-full rounded-xl" />
+      <canvas ref={canvasRef} className="w-full rounded-xl" />
     </div>
+  );
+}
+
+/* -------------------------
+   Trade KPI Section
+-------------------------- */
+function TradeKpiSection() {
+  const [loading, setLoading] = useState(true);
+  const [kpis, setKpis] = useState<{ label: string; value: string | number }[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch("/api/trade", { cache: "no-store" });
+        const data = await res.json();
+        setKpis(data.kpis || []);
+        setUpdatedAt(data.updatedAt || null);
+      } catch (e) {
+        console.error("Trade API failed", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  return (
+    <section className="bg-gray-50 dark:bg-gray-900 py-10 rounded-2xl shadow">
+      <div className="max-w-5xl mx-auto px-4">
+        <h2 className="text-2xl font-bold mb-6">🌍 World Trade Snapshot</h2>
+        {loading ? (
+          <p className="text-gray-500">Loading trade data...</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            {kpis.map((k) => (
+              <div
+                key={k.label}
+                className="rounded-xl bg-white dark:bg-gray-800 shadow p-6 text-center"
+              >
+                <p className="text-gray-500 text-sm">{k.label}</p>
+                <p className="text-xl font-semibold">{k.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {updatedAt && (
+          <p className="mt-4 text-xs text-gray-400">
+            Last updated: {new Date(updatedAt).toLocaleString()}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -128,7 +177,9 @@ function StakeholderTabs() {
   const [active, setActive] = useState<keyof typeof EMBEDS>("SME");
   return (
     <div className="w-full">
-      <h2 className="text-2xl font-bold text-center mb-6">Stakeholder Stories</h2>
+      <h2 className="text-2xl font-bold text-center mb-6">
+        Stakeholder Stories
+      </h2>
       <div className="flex flex-wrap justify-center gap-3 mb-6">
         {Object.keys(EMBEDS).map((k) => (
           <button
@@ -136,7 +187,7 @@ function StakeholderTabs() {
             onClick={() => setActive(k as keyof typeof EMBEDS)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
               active === k
-                ? "bg-indigo-600 text-white"
+                ? "bg-indigo-600 text-white shadow"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
           >
@@ -157,7 +208,7 @@ function StakeholderTabs() {
 -------------------------- */
 function WhyNow() {
   return (
-    <section className="rounded-2xl border bg-white shadow-sm p-6 space-y-4">
+    <section className="rounded-2xl border bg-white shadow p-6 space-y-4">
       <h2 className="text-2xl font-bold text-center">Why Now?</h2>
       <p className="text-center text-gray-600 max-w-2xl mx-auto">
         Global trade is at an inflection point: digitization, compliance,
@@ -166,7 +217,7 @@ function WhyNow() {
       <div
         className="mt-4"
         dangerouslySetInnerHTML={{
-          __html: `<div id="1758290693853" style="width:100%;max-width:700px;height:525px;margin:auto;"><iframe allow="clipboard-write" allow="autoplay" allowfullscreen style="width:100%;height:100%;border:none;" src="https://app.presentations.ai/view/csx0tIFvuN" scrolling="no"></iframe></div>`,
+          __html: `<div style="width:100%;max-width:700px;height:525px;margin:auto;"><iframe allowfullscreen style="width:100%;height:100%;border:none;" src="https://app.presentations.ai/view/csx0tIFvuN" scrolling="no"></iframe></div>`,
         }}
       />
     </section>
@@ -207,6 +258,9 @@ export default function HomePage() {
 
         {/* ANIMATION */}
         <GsosAnimation />
+
+        {/* TRADE KPIs */}
+        <TradeKpiSection />
 
         {/* REALITY CHECK IMAGE */}
         <section>

@@ -1,135 +1,232 @@
-// frontend/app/start/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+/* --------------------------
+   Role Hierarchy Definition
+--------------------------- */
+const ROLE_MAIN = {
+  SME: ["Manufacturer", "Trader", "Exporter", "Importer"],
+  Corporate: ["MNC", "Large Enterprise", "Conglomerate"],
+  Logistics: ["Freight Forwarder", "3PL", "Customs Broker"],
+  Finance: ["Bank", "NBFC", "Fintech"],
+  Insurer: ["Trade Credit", "Marine Cargo", "General"],
+  Regulator: ["Customs", "DGFT", "Central Bank"],
+  Broker: ["Agent", "Middleman", "Distributor"],
+  Retailer: ["Wholesale", "Retail Chain", "E-Commerce"],
+} as const;
+
+type MainRole = keyof typeof ROLE_MAIN;
+
+/* --------------------------
+   Page Component
+--------------------------- */
 export default function StartPage() {
   const router = useRouter();
+
+  // Step-0 fields
   const [company, setCompany] = useState("");
-  const [role, setRole] = useState("retailer");
-  const [country, setCountry] = useState("India");
+  const [mainRole, setMainRole] = useState<MainRole | "">("");
+  const [subRole, setSubRole] = useState("");
+  const [country, setCountry] = useState("");
   const [email, setEmail] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [revenue, setRevenue] = useState("");
+  const [employees, setEmployees] = useState("");
+  const [operations, setOperations] = useState("");
+  const [yearsActive, setYearsActive] = useState("");
 
-  async function onContinue() {
-    setToast(null);
+  // survey state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    if (!company.trim()) {
-      setToast("Please enter your company name.");
-      return;
-    }
-    if (!role) {
-      setToast("Please select a role.");
-      return;
-    }
-    if (!country) {
-      setToast("Please select a country.");
-      return;
-    }
-
-    // Persist to localStorage for Survey to read
+  // preload Step-0 from localStorage
+  useEffect(() => {
     try {
-      localStorage.setItem("gsos_company", company.trim());
-      localStorage.setItem("gsos_role", role);
+      setCompany(localStorage.getItem("gsos_company") || "");
+      setMainRole((localStorage.getItem("gsos_roleMain") as MainRole) || "");
+      setSubRole(localStorage.getItem("gsos_roleSub") || "");
+      setCountry(localStorage.getItem("gsos_country") || "");
+      setEmail(localStorage.getItem("gsos_email") || "");
+      setRevenue(localStorage.getItem("gsos_revenue") || "");
+      setEmployees(localStorage.getItem("gsos_employees") || "");
+      setOperations(localStorage.getItem("gsos_operations") || "");
+      setYearsActive(localStorage.getItem("gsos_yearsActive") || "");
+    } catch {}
+  }, []);
+
+  async function handleStart(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!company || !mainRole || !subRole || !country || !email) {
+      setError("Please complete all required fields.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // persist Step-0
+      localStorage.setItem("gsos_company", company);
+      localStorage.setItem("gsos_roleMain", mainRole);
+      localStorage.setItem("gsos_roleSub", subRole);
       localStorage.setItem("gsos_country", country);
-      if (email.trim()) localStorage.setItem("gsos_email", email.trim());
-    } catch {
-      // ignore
-    }
+      localStorage.setItem("gsos_email", email.toLowerCase());
+      localStorage.setItem("gsos_revenue", revenue);
+      localStorage.setItem("gsos_employees", employees);
+      localStorage.setItem("gsos_operations", operations);
+      localStorage.setItem("gsos_yearsActive", yearsActive);
 
-    // OPTIONAL: also save to DB (non-blocking, best effort)
-    try {
-      setSaving(true);
-      await fetch("/api/company/create", {
+      // call generator
+      const resp = await fetch("/api/survey/generate", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyName: company.trim(),
-          contactName: "", // you can add fields on this page if you wish
-          email: email.trim() || undefined,
-          roleMain: role,
-          roleSub: "",
-          aboutCompany: "",
-          products: "",
+          company,
+          roleMain: mainRole,
+          roleSub,
+          country,
+          email,
+          revenue,
+          employees,
+          operations,
+          yearsActive,
         }),
-      }).catch(() => {});
-    } finally {
-      setSaving(false);
-    }
+      });
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Survey generation failed");
 
-    router.push("/survey");
+      const sid = data.sessionId || data.sid;
+      if (!sid) throw new Error("No session ID returned from generator");
+
+      localStorage.setItem("gsos_session", sid);
+
+      router.push(`/survey?sessionId=${encodeURIComponent(sid)}`);
+    } catch (e: any) {
+      setError(e.message || "Failed to start survey");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function reset() {
+    [
+      "gsos_company",
+      "gsos_roleMain",
+      "gsos_roleSub",
+      "gsos_country",
+      "gsos_email",
+      "gsos_revenue",
+      "gsos_employees",
+      "gsos_operations",
+      "gsos_yearsActive",
+      "gsos_session",
+    ].forEach((k) => localStorage.removeItem(k));
+    setCompany("");
+    setMainRole("");
+    setSubRole("");
+    setCountry("");
+    setEmail("");
+    setRevenue("");
+    setEmployees("");
+    setOperations("");
+    setYearsActive("");
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
-      <div className="bg-gray-900 text-white rounded-2xl px-6 py-4">
-        <div className="text-lg font-semibold">Step-0: Tell us about you</div>
-        <div className="text-sm opacity-80">We’ll tailor the survey to your profile.</div>
-      </div>
+    <main className="max-w-3xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Step-0: Tell us about your business</h1>
+      <form onSubmit={handleStart} className="space-y-5 rounded-xl border bg-white p-6 shadow">
+        {error && <p className="text-red-600">{error}</p>}
 
-      <div className="space-y-4">
         <div>
-          <label className="block font-medium mb-1">Company Name <span className="text-red-500">*</span></label>
-          <input
-            className="w-full px-4 py-2 rounded-xl border border-gray-300"
-            placeholder="e.g., GLOBAL NEXUS EXIM (OPC) PRIVATE LIMITED"
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
+          <label className="block text-sm font-medium">Company Name *</label>
+          <input className="w-full rounded border p-2" value={company} onChange={(e) => setCompany(e.target.value)} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium">Main Role *</label>
+            <select
+              className="w-full rounded border p-2"
+              value={mainRole}
+              onChange={(e) => {
+                setMainRole(e.target.value as MainRole);
+                setSubRole("");
+              }}
+            >
+              <option value="">Select</option>
+              {(Object.keys(ROLE_MAIN) as MainRole[]).map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Sub Role *</label>
+            <select
+              className="w-full rounded border p-2"
+              value={subRole}
+              onChange={(e) => setSubRole(e.target.value)}
+              disabled={!mainRole}
+            >
+              <option value="">Select</option>
+              {mainRole && ROLE_MAIN[mainRole].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">Country *</label>
+          <input className="w-full rounded border p-2" value={country} onChange={(e) => setCountry(e.target.value)} />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">Business Revenue (USD/year)</label>
+          <input className="w-full rounded border p-2" value={revenue} onChange={(e) => setRevenue(e.target.value)} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium"># Employees</label>
+            <input className="w-full rounded border p-2" value={employees} onChange={(e) => setEmployees(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Years Active</label>
+            <input className="w-full rounded border p-2" value={yearsActive} onChange={(e) => setYearsActive(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">Area of Operations</label>
+          <textarea
+            className="w-full rounded border p-2"
+            value={operations}
+            onChange={(e) => setOperations(e.target.value)}
+            placeholder="e.g. India, Middle East, Southeast Asia"
           />
         </div>
 
         <div>
-          <label className="block font-medium mb-1">Role <span className="text-red-500">*</span></label>
-          <select
-            className="w-full px-4 py-2 rounded-xl border border-gray-300"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
+          <label className="block text-sm font-medium">Contact Email *</label>
+          <input type="email" className="w-full rounded border p-2" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </div>
+
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            <option value="retailer">Retailer</option>
-            <option value="seller">Seller</option>
-            <option value="buyer">Buyer</option>
-            <option value="logistics">Logistics/3PL</option>
-            <option value="bank">Bank/Financier</option>
-            <option value="insurer">Insurer</option>
-            <option value="broker">Broker/Agent</option>
-            <option value="govt">Govt/Regulator</option>
-          </select>
+            {loading ? "Starting…" : "Start Survey"}
+          </button>
+          <button type="button" onClick={reset} className="rounded border px-4 py-2 hover:bg-gray-50">
+            Reset
+          </button>
         </div>
-
-        <div>
-          <label className="block font-medium mb-1">Country <span className="text-red-500">*</span></label>
-          <input
-            className="w-full px-4 py-2 rounded-xl border border-gray-300"
-            placeholder="e.g., India"
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="block font-medium mb-1">Email (optional)</label>
-          <input
-            type="email"
-            className="w-full px-4 py-2 rounded-xl border border-gray-300"
-            placeholder="name@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <p className="text-xs text-gray-500 mt-1">We’ll use this to send your survey results or contact you.</p>
-        </div>
-
-        <button
-          onClick={onContinue}
-          disabled={saving}
-          className="px-5 py-2 rounded-xl bg-black text-white disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Continue to Survey"}
-        </button>
-
-        {toast && <div className="text-sm text-red-600">{toast}</div>}
-      </div>
-    </div>
+      </form>
+    </main>
   );
 }
