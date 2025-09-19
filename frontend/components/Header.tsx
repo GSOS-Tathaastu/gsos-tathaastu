@@ -1,11 +1,10 @@
-// frontend/components/navbar.tsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
-export default function Navbar() {
+export default function Header() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -13,16 +12,16 @@ export default function Navbar() {
     { href: "/", label: "Home" },
     { href: "/how-it-works", label: "How it works" },
     { href: "/modules", label: "Modules" },
-    // IMPORTANT: Survey must start at /start (Step-0), not /survey
     { href: "/start", label: "Survey" },
     { href: "/contact", label: "Contact" },
-    // New protected sections
     { href: "/investors", label: "Investors" },
     { href: "/admin/health", label: "Admin" },
   ];
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  function isActive(href: string) {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  }
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -33,7 +32,6 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop */}
         <nav className="hidden gap-6 md:flex">
           {nav.map((item) => (
             <Link
@@ -52,7 +50,6 @@ export default function Navbar() {
           <span className="text-xs text-gray-400">🔒 Admin & Investors</span>
         </nav>
 
-        {/* Mobile toggle */}
         <button
           className="md:hidden inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm"
           onClick={() => setOpen((v) => !v)}
@@ -62,7 +59,6 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile */}
       {open && (
         <div className="md:hidden border-t">
           <nav className="mx-auto flex max-w-6xl flex-col px-4 py-3">
