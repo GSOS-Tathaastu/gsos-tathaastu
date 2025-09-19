@@ -11,14 +11,16 @@ export type AnswerRecord = {
 
 export type SurveySession = {
   _id?: any;
-  role: string;
-  participant: {
-    name?: string;
-    email?: string;
-    company?: string;
-    phone?: string;
-    country?: string;
-  };
+  email?: string;     // ✅ add this
+  role?: string;
+  country?: string;
+  status?: "in_progress" | "completed";
+  startedAt?: Date;
+  updatedAt?: Date;
+  completedAt?: Date;
+  answers?: any[];
+  questions?: any[];
+};
   seed?: string;
   status: "active" | "completed" | "abandoned";
   startedAt: Date;

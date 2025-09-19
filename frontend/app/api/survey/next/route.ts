@@ -1,68 +1,107 @@
+// frontend/app/api/survey/next/route.ts
 import { NextResponse } from "next/server";
-import clientPromise from "@/lib/mongo";
-import { openai } from "@/lib/openai";
-import type { SurveySession, QuestionMeta } from "@/lib/types";
 import { ObjectId } from "mongodb";
+import { getDbOrNull } from "@/lib/mongo";
+import { getSurvey } from "@/lib/questionBank";
+import type { SurveySession } from "@/lib/types";
+
+type Body = {
+  sessionId?: string;
+  email?: string;
+  role?: string;
+  country?: string;
+};
 
 export async function POST(req: Request) {
   try {
-    const { sessionId } = await req.json();
-    if (!sessionId) return NextResponse.json({ error: "missing_session" }, { status: 400 });
+    const { sessionId: incomingId, email = "", role = "retailer", country = "India" } =
+      (await req.json()) as Body;
 
-    const client = await clientPromise;
-    const db = client.db(process.env.MONGODB_DB || "gsos");
+    const db = await getDbOrNull();
+    if (!db) {
+      return NextResponse.json(
+        { ok: false, error: "Database not connected (set MONGO_URI & MONGO_DB)" },
+        { status: 200 }
+      );
+    }
+
     const sessions = db.collection<SurveySession>("survey_sessions");
-    const session = await sessions.findOne({ _id: new ObjectId(String(sessionId)) });
-    if (!session || session.status !== "active") {
-      return NextResponse.json({ error: "session_not_active" }, { status: 400 });
+    let sessionId = incomingId;
+    let session: SurveySession | null = null;
+
+    // load or create session
+    if (sessionId) {
+      try {
+        session = await sessions.findOne({ _id: new ObjectId(sessionId) });
+      } catch {
+        session = null;
+      }
+    }
+    if (!session) {
+      const doc: Partial<SurveySession> = {
+        email: email.toLowerCase().trim(),
+        role,
+        country,
+        status: "in_progress",
+        startedAt: new Date(),
+        answers: [],
+      };
+      const created = await sessions.insertOne(doc as any);
+      sessionId = created.insertedId.toString();
+      session = { _id: created.insertedId, ...(doc as any) } as SurveySession;
+    } else {
+      // update meta
+      await sessions.updateOne(
+        { _id: new ObjectId(sessionId!) },
+        {
+          $set: {
+            email: email ? email.toLowerCase().trim() : ((session as any).email || ""),
+            role,
+            country,
+            updatedAt: new Date(),
+          },
+        }
+      );
     }
 
-    // Build adaptive prompt from history
-    const history = session.answers.map(a => `Q: ${a.prompt}\nA: ${Array.isArray(a.response) ? a.response.join(", ") : a.response}`).join("\n\n");
-    const role = session.role;
+    // fetch questions (use any[] to avoid type mismatch)
+    const def = getSurvey(role, country);
+    const questions: any[] = def?.questions || [];
 
-    const sys =
-      "You generate follow-up survey questions to diagnose supply chain pain points. " +
-      "Return a JSON array of 6 questions. Types allowed: likert(min=1,max=5), mcq(options, multi?), short_text. " +
-      "Prefer Likert for maturity checks, MCQ for systems/channels, and short_text for open gaps. Keep prompts crisp.";
+    const answered = Array.isArray((session as any).answers)
+      ? (session as any).answers.length
+      : 0;
+    const total = questions.length;
 
-    const res = await openai.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      input: [
-        { role: "system", content: sys },
-        { role: "user", content:
-          `Role: ${role}\nHistory so far:\n${history}\n\n` +
-          `TASK: Generate the next 6 focused questions that dive deeper where the answers suggest gaps. ` +
-          `Output JSON with shape: [{id, type, prompt, options?, multi?, min?, max?}]`}
-      ],
-      temperature: 0.3,
+    if (answered >= total) {
+      await sessions.updateOne(
+        { _id: new ObjectId(sessionId!) },
+        { $set: { status: "completed", completedAt: new Date() } }
+      );
+      return NextResponse.json({
+        ok: true,
+        finished: true,
+        sessionId,
+        total,
+        answered,
+        next: null,
+      });
+    }
+
+    const nextQ = questions[answered] || null;
+
+    return NextResponse.json({
+      ok: true,
+      finished: false,
+      sessionId,
+      total,
+      answered,
+      next: nextQ,
     });
-
-    const text = (res.output_text || "").trim();
-    let parsed: any[] = [];
-    try { parsed = JSON.parse(text); } catch {
-      // fallback: try to extract JSON block
-      const m = text.match(/\[[\s\S]*\]/);
-      if (m) parsed = JSON.parse(m[0]);
-    }
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return NextResponse.json({ error: "ai_parse_failed", raw: text }, { status: 500 });
-    }
-
-    // Normalize ids if missing
-    const batch: QuestionMeta[] = parsed.map((q: any, idx: number) => ({
-      id: q.id || `q_${Date.now()}_${idx}`,
-      type: q.type,
-      prompt: q.prompt,
-      ...(q.options ? { options: q.options } : {}),
-      ...(q.multi != null ? { multi: !!q.multi } : {}),
-      ...(q.min != null ? { min: Number(q.min) } : {}),
-      ...(q.max != null ? { max: Number(q.max) } : {}),
-    }));
-
-    await sessions.updateOne({ _id: session._id }, { $set: { currentBatch: batch } });
-    return NextResponse.json({ ok: true, currentBatch: batch });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
