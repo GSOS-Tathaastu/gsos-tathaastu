@@ -4,13 +4,9 @@ export type ShortTextQ = { type: "short_text" };
 export type QuestionMeta = (LikertQ | MCQQ | ShortTextQ) & { id: string; prompt: string };
 
 export type AnswerRecord = {
-  qid: string;
-  prompt: string;
-  meta: Omit<QuestionMeta, "id" | "prompt">;
-  options?: string[];           // keep original options if mcq
-  response: string | string[];  // user’s answer
-  aiNotes?: string;             // per-answer AI note
-  createdAt: Date;
+  questionId: string;   // <-- add this
+  value: any;
+  meta?: any;
 };
 
 export type SurveySession = {
