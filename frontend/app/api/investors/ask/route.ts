@@ -23,7 +23,10 @@ export async function POST(req: Request) {
     const db = await getDbOrNull();
     if (!db) {
       return NextResponse.json(
-        { ok: false, error: "Database not connected (set MONGO_URI & MONGO_DB)" },
+        {
+          ok: false,
+          error: "Database not connected (set MONGO_URI & MONGO_DB)",
+        },
         { status: 200 }
       );
     }
@@ -39,7 +42,10 @@ export async function POST(req: Request) {
 
     await db.collection("investor_questions").insertOne(doc);
 
-    return NextResponse.json({ ok: true, id: doc.email + ":" + doc.createdAt.toISOString() });
+    return NextResponse.json({
+      ok: true,
+      id: doc.email + ":" + doc.createdAt.toISOString(),
+    });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || "Unknown error" },
