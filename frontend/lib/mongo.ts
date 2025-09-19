@@ -1,35 +1,16 @@
-import { MongoClient, Db } from "mongodb";
+ frontend/lib/mongo.ts
+import { MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-  throw new Error("MONGODB_URI is not set in environment");
-}
+const uri = process.env.MONGO_URI!;
+if (!uri) throw new Error("Missing MONGO_URI in env");
+const dbName = process.env.MONGO_DB || "gsos";
 
-// Keep a single client across hot reloads in dev
-declare global {
-  // eslint-disable-next-line no-var
-  var _mongoClientPromise: Promise<MongoClient> | undefined;
-}
+let client: MongoClient | null = null;
 
-let client: MongoClient | undefined;
-let clientPromise: Promise<MongoClient>;
-
-if (process.env.NODE_ENV !== "production") {
-  if (!global._mongoClientPromise) {
-    client = new MongoClient(uri);
-    global._mongoClientPromise = client.connect();
+export async function getDb() {
+  if (!client) {
+    client = new MongoClient(uri, { });
+    await client.connect();
   }
-  clientPromise = global._mongoClientPromise!;
-} else {
-  client = new MongoClient(uri);
-  clientPromise = client.connect();
-}
-
-export default clientPromise;
-
-export async function getDb(
-  name: string = process.env.MONGODB_DB || "gsos"
-): Promise<Db> {
-  const c = await clientPromise;
-  return c.db(name);
+  return client.db(dbName);
 }
