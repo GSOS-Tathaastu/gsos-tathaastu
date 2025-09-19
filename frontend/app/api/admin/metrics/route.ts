@@ -1,66 +1,52 @@
+// frontend/app/api/admin/metrics/route.ts
 import { NextResponse } from "next/server";
-import { getDbOrNull } from "@/lib/mongo";
+import clientPromise from "@/lib/mongo";
 
 export async function GET() {
-  const started = Date.now();
-  const db = await getDbOrNull();
+  try {
+    const client = await clientPromise;
+    const db = client?.db();
 
-  let stats: any = null;
-  let collections: { name: string; count: number }[] = [];
-  let counts: Record<string, number> = {
-    submissions: 0,
-    companies: 0,
-    chunks: 0, // if you have embeddings/chunking pipeline, this will show up
-  };
+    // If DB is not available, return graceful error
+    if (!db) {
+      return NextResponse.json({
+        ok: false,
+        error: "Database connection not available",
+        counts: { submissions: 0, users: 0, chunks: 0 },
+      });
+    }
 
-  if (db) {
-    try {
-      // DB stats
-      stats = await db.command({ dbStats: 1, scale: 1 }).catch(() => null);
+    const collections = await db.listCollections().toArray();
+    const names = collections.map((c) => c.name);
 
-      // Collection counts (defensive—only count if collection exists)
-      const colls = await db.listCollections().toArray();
-      const names = colls.map(c => c.name);
+    const counts: Record<string, number> = {
+      submissions: 0,
+      users: 0,
+      chunks: 0,
+    };
 
-      async function safeCount(name: string) {
-        if (!names.includes(name)) return 0;
-        return await db.collection(name).countDocuments({});
-      }
+    async function safeCount(name: string) {
+      if (!names.includes(name)) return 0;
+      return await db.collection(name).countDocuments({});
+    }
 
-      counts.submissions = await safeCount("submissions");
-      counts.companies   = await safeCount("companies");
-      counts.chunks      = await safeCount("chunks");
+    counts.submissions = await safeCount("submissions");
+    counts.users = await safeCount("users");
+    counts.chunks = await safeCount("chunks");
 
-      // also list first few collections with sizes
-      for (const n of names.slice(0, 12)) {
-        const c = await db.collection(n).estimatedDocumentCount();
-        collections.push({ name: n, count: c });
-      }
-    } catch {}
+    return NextResponse.json({
+      ok: true,
+      counts,
+    });
+  } catch (err: any) {
+    console.error("Metrics API error:", err);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err.message || "Unknown error",
+        counts: { submissions: 0, users: 0, chunks: 0 },
+      },
+      { status: 500 }
+    );
   }
-
-  // Node process metrics (server runtime)
-  const mem = process.memoryUsage();
-  const memory = {
-    rssMB: Math.round(mem.rss / 1024 / 1024),
-    heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
-    heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
-    externalMB: Math.round(mem.external / 1024 / 1024),
-  };
-
-  return NextResponse.json({
-    ok: true,
-    latencyMs: Date.now() - started,
-    hasDb: !!db,
-    counts,
-    collections,
-    dbStats: stats,
-    runtime: {
-      node: process.version,
-      vercel: !!process.env.VERCEL,
-      uptimeSec: Math.round(process.uptime()),
-      pid: process.pid,
-    },
-    ts: new Date().toISOString(),
-  });
 }
