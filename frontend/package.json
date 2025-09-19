@@ -1,3 +1,9 @@
+"scripts": {
+  "dev": "next dev -p 3000",
+  "build": "next build --no-lint --quiet",
+  "start": "next start -p 3000"
+}
+
 {
   "name": "gsos-frontend",
   "private": true,
@@ -9,11 +15,13 @@
   },
   "dependencies": {
     "isomorphic-dompurify": "2.13.0",
-    "mongodb": "6.8.0",
+    "mongodb": "^6.19.0",
     "next": "^14.2.32",
     "nodemailer": "^6.9.13",
+    "openai": "^5.20.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "sharp": "^0.34.3",
     "zod": "3.23.8"
   },
   "devDependencies": {

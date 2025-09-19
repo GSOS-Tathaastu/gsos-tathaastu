@@ -1,0 +1,15 @@
+# Simple, fast image
+FROM node:20-alpine
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev || npm i --omit=dev
+
+# Copy only what the worker needs
+COPY ingest.mjs ./ingest.mjs
+
+# Optional: copy a bundled data/ for first run (you can skip this if pulling from external storage)
+# COPY data ./data
+
+ENV NODE_ENV=production
+CMD ["npm", "start"]

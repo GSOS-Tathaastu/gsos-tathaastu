@@ -1,0 +1,23 @@
+{
+  "name": "gsos-reingest-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node ingest.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "mammoth": "^1.10.0",
+    "mongodb": "^6.19.0",
+    "openai": "^4.104.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "description": "\\# GSOS Re-ingest Worker (Railway)",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

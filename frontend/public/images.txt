@@ -1,0 +1,66 @@
+// frontend/app/page.tsx
+import Image from "next/image";
+import Link from "next/link";
+
+export default function HomePage() {
+  return (
+    <main className="max-w-6xl mx-auto p-4 space-y-10">
+      {/* Hero */}
+      <section className="grid md:grid-cols-2 gap-6 items-center">
+        <div className="space-y-4">
+          <h1 className="text-3xl font-bold">GSOS — Global Supply Operating System</h1>
+          <p className="text-sm opacity-80">
+            Forecasting, Inventory, Compliance. One place to plan, execute, and track.
+          </p>
+          <div className="flex gap-3">
+            <Link href="/step-zero" className="px-4 py-2 rounded-xl bg-black text-white">Start the Survey</Link>
+            <Link href="/what-you-get" className="px-4 py-2 rounded-xl border">What you get</Link>
+          </div>
+        </div>
+        <div className="rounded-2xl overflow-hidden border">
+          <Image
+            src="/images/Supply-Chains-Dont-Need-Another-Tool-They-Need-an-Operating-System.png"
+            alt="Supply chains need an operating system"
+            width={1200}
+            height={800}
+            priority
+          />
+        </div>
+      </section>
+
+      {/* Reality Check */}
+      <section className="grid md:grid-cols-2 gap-6 items-center">
+        <div className="rounded-2xl overflow-hidden border">
+          <Image
+            src="/images/The-Reality-Check-Supply-Chain-Fragmentation.png"
+            alt="Reality check — supply chain fragmentation"
+            width={1200}
+            height={800}
+          />
+        </div>
+        <div className="space-y-3">
+          <h2 className="text-2xl font-semibold">The reality check</h2>
+          <p className="text-sm opacity-80">
+            Fragmented tools create blind spots. GSOS unifies demand, supply, and compliance to
+            reduce stockouts, speed turns, and de-risk fulfilment.
+          </p>
+          <Link className="text-blue-600 underline" href="/modules">Explore Modules</Link>
+        </div>
+      </section>
+
+      {/* Live Global Trade (cached) */}
+      <section className="border rounded-2xl p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Global Trade — Live Snapshot</h2>
+          <Link href="/fx" className="text-sm underline">Live FX</Link>
+        </div>
+        {/* Lightweight client widget */}
+        {/* @ts-expect-error Async Server to Client bridge */}
+        {require("@/components/TradeWidget").default()}
+        <p className="text-xs opacity-60 mt-2">
+          Updated daily via backend job (hybrid caching).
+        </p>
+      </section>
+    </main>
+  );
+}

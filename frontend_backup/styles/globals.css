@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --ring: #4f46e5; }
+* { outline-color: var(--ring); }
