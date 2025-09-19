@@ -1,50 +1,44 @@
+// frontend/app/api/investors/analytics/route.ts
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/mongo";
+import { getDbOrNull } from "@/lib/mongo";
 
 export async function GET() {
   try {
-    const db = await getDb();
-    const surveys = db.collection("survey_submissions"); // if you use a different collection, adjust
-    const total = await surveys.countDocuments();
+    const db = await getDbOrNull();
 
-    // Very light-weight signals (adjust as your schema evolves)
-    const last = await surveys.find({}).sort({ createdAt: -1 }).limit(1).toArray();
-    const lastUpdated = last?.[0]?.createdAt || null;
-
-    // Example: basic keyword counts from a 'pain' free-text field
-    const cursor = surveys.find({}, { projection: { pain: 1 } });
-    const keywords: Record<string, number> = {};
-    for await (const doc of cursor) {
-      const text = (doc?.pain || "").toLowerCase();
-      ["stockout", "overstock", "delay", "compliance", "cash", "forecast"].forEach((k) => {
-        if (text.includes(k)) keywords[k] = (keywords[k] || 0) + 1;
-      });
+    // Graceful response if DB isn't configured/connected
+    if (!db) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Database not connected (set MONGO_URI & MONGO_DB)",
+          stats: { submissions: 0, companies: 0, intents: 0, questions: 0 },
+        },
+        { status: 200 }
+      );
     }
 
-    // Example likert averages if you store normalized likert answers as { qid, value }
-    const likertAgg = await surveys.aggregate([
-      { $unwind: { path: "$likert", preserveNullAndEmptyArrays: true } },
-      { $match: { "likert.value": { $gte: 1, $lte: 5 } } },
-      {
-        $group: {
-          _id: "$likert.qid",
-          avg: { $avg: "$likert.value" },
-          n: { $sum: 1 },
-        },
-      },
-      { $sort: { avg: -1 } },
-      { $limit: 10 },
-    ]).toArray();
+    // Count safely for the collections we care about
+    const names = new Set((await db.listCollections().toArray()).map(c => c.name));
+    const safeCount = async (name: string) =>
+      names.has(name) ? db.collection(name).countDocuments({}) : 0;
+
+    const [submissions, companies, intents, questions] = await Promise.all([
+      safeCount("submissions"),
+      safeCount("companies"),
+      safeCount("investor_intents"),
+      safeCount("investor_questions"),
+    ]);
 
     return NextResponse.json({
       ok: true,
-      ready: total >= 30,
-      total,
-      lastUpdated,
-      painKeywords: keywords,
-      likert: likertAgg,
+      stats: { submissions, companies, intents, questions },
+      ts: new Date().toISOString(),
     });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "failed" }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
