@@ -1,13 +1,24 @@
-// frontend/lib/ai.ts
 import OpenAI from "openai";
 import { getDbOrNull } from "@/lib/mongo";
 
-const CHAT_MODEL = process.env.CHAT_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+// Pick model from env, fallback to gpt-4o-mini
+const CHAT_MODEL =
+  process.env.CHAT_MODEL ||
+  process.env.OPENAI_MODEL ||
+  "gpt-4o-mini";
 
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  // Fail fast at runtime with a clear message
+  throw new Error("OPENAI_API_KEY is not set in environment variables");
+}
 
+// Exported OpenAI client
+export const openai = new OpenAI({ apiKey });
+
+/**
+ * Usage record stored in DB or buffer.
+ */
 type UsageRec = {
   ts: Date;
   endpoint: "chat";
@@ -15,10 +26,12 @@ type UsageRec = {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
-  // optional rolling id to group by feature
-  feature?: string;
+  feature?: string; // optional grouping feature
 };
 
+/**
+ * Try to record token usage to MongoDB, fallback to in-memory buffer.
+ */
 async function recordUsage(u: UsageRec) {
   try {
     const db = await getDbOrNull();
@@ -27,18 +40,26 @@ async function recordUsage(u: UsageRec) {
       return;
     }
   } catch {
-    // fall through to file log
+    // ignore DB errors, fallback
   }
   try {
-    // fallback file log (best-effort)
     const line = JSON.stringify(u) + "\n";
-    // @ts-ignore
-    (global as any).__AI_USAGE_BUFFER__ = ((global as any).__AI_USAGE_BUFFER__ || "") + line;
-    // You can extend to fs.appendFile if you prefer, but many hosts are read-only
-  } catch {}
+    // @ts-ignore: attach to global buffer for debugging
+    (global as any).__AI_USAGE_BUFFER__ =
+      ((global as any).__AI_USAGE_BUFFER__ || "") + line;
+  } catch {
+    // swallow all errors silently
+  }
 }
 
-export async function chatWithFallback(messages: any[], opts: Partial<OpenAI.Chat.Completions.ChatCompletionCreateParams> = {}, feature?: string) {
+/**
+ * Wrapper for chat completions with token usage logging.
+ */
+export async function chatWithFallback(
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  opts: Partial<OpenAI.Chat.Completions.ChatCompletionCreateParams> = {},
+  feature?: string
+): Promise<string> {
   const res = await openai.chat.completions.create({
     model: CHAT_MODEL,
     messages,
@@ -48,6 +69,7 @@ export async function chatWithFallback(messages: any[], opts: Partial<OpenAI.Cha
 
   const text = res.choices?.[0]?.message?.content || "";
   const use = (res as any).usage || {};
+
   await recordUsage({
     ts: new Date(),
     endpoint: "chat",
