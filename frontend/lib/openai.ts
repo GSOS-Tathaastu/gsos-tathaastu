@@ -1,9 +1,10 @@
-import OpenAI from "openai";
+const key = process.env.OPENAI_API_KEY;
+if (!key) {
+  // Keep it soft-failing in dev; hard fail in prod as you like
+  console.warn("OPENAI_API_KEY not set; investor Q&A will be disabled.");
+}
 
-export const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
-
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  ...(process.env.OPENAI_PROJECT_ID ? { project: process.env.OPENAI_PROJECT_ID } : {}),
-  ...(process.env.OPENAI_ORG_ID ? { organization: process.env.OPENAI_ORG_ID } : {}),
-});
+export function getOpenAIKey() {
+  if (!key) throw new Error("OPENAI_API_KEY not set");
+  return key;
+}
