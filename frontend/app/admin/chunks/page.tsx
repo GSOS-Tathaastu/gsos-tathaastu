@@ -1,4 +1,3 @@
-// frontend/app/admin/chunks/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -14,12 +13,11 @@ export default function AdminChunksUploadPage() {
   const [loading, setLoading] = useState(false);
 
   function parseCSV(csv: string): Row[] {
-    // Very simple CSV: id,title,text,tags
+    // CSV headers: id,title,text,tags
     const lines = csv.split(/\r?\n/).filter(Boolean);
     if (!lines.length) return [];
-
-    const header = lines[0].split(",").map((s) => s.trim());
-    const idx = (name: string) => header.findIndex((h) => h.toLowerCase() === name);
+    const header = lines[0].split(",").map((s) => s.trim().toLowerCase());
+    const idx = (k: string) => header.indexOf(k);
 
     const iId = idx("id");
     const iTitle = idx("title");
@@ -29,13 +27,15 @@ export default function AdminChunksUploadPage() {
     const out: Row[] = [];
     for (let l = 1; l < lines.length; l++) {
       const cols = lines[l].split(",");
-      const r: Row = {
+      const text = (iText >= 0 ? cols[iText] : "")?.trim() || "";
+      if (!text) continue;
+      const row: Row = {
         id: iId >= 0 ? cols[iId]?.trim() : undefined,
         title: iTitle >= 0 ? cols[iTitle]?.trim() : undefined,
-        text: iText >= 0 ? cols[iText]?.trim() : "",
+        text,
         tags: iTags >= 0 ? cols[iTags]?.trim() : undefined,
       };
-      if (r.text) out.push(r);
+      out.push(row);
     }
     return out;
   }
@@ -43,12 +43,10 @@ export default function AdminChunksUploadPage() {
   async function handleFile(f: File) {
     setError(null);
     setResult(null);
-
     const text = await f.text();
     let parsed: Row[] = [];
-
     try {
-      if (f.name.endsWith(".csv")) {
+      if (/\.(csv)$/i.test(f.name)) {
         parsed = parseCSV(text);
       } else {
         const obj = JSON.parse(text);
@@ -56,10 +54,9 @@ export default function AdminChunksUploadPage() {
         parsed = Array.isArray(arr) ? arr : [];
       }
     } catch (e: any) {
-      setError("Failed to parse file: " + (e.message || String(e)));
+      setError("Failed to parse file: " + (e?.message || String(e)));
       return;
     }
-
     setRows(parsed);
     setPreview(`Loaded ${parsed.length} chunks from ${f.name}`);
   }
@@ -80,28 +77,34 @@ export default function AdminChunksUploadPage() {
         body: JSON.stringify({ mode, chunks: rows }),
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Upload failed");
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setResult(data);
     } catch (e: any) {
-      setError(e.message || "Upload failed");
+      setError(e?.message || "Upload failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
+    <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-4">Upload Chunks</h1>
 
       <div className="mb-4 text-sm text-gray-600">
         <p>Accepted formats:</p>
         <ul className="list-disc ml-5">
-          <li><code>JSON</code> with <code>[{{id?, title?, text, tags?}}]</code> or <code>{{chunks:[...]}}</code></li>
-          <li><code>CSV</code> with headers: <code>id,title,text,tags</code> (tags can be comma/pipe separated)</li>
+          <li>
+            <code>JSON</code> with <code>[&#123;id?, title?, text, tags?&#125;]</code> or{" "}
+            <code>&#123;chunks:[...]&#125;</code>
+          </li>
+          <li>
+            <code>CSV</code> with headers: <code>id,title,text,tags</code> (tags can be comma/pipe
+            separated)
+          </li>
         </ul>
       </div>
 
-      <div className="flex gap-2 items-center mb-4">
+      <div className="flex items-center gap-2 mb-4">
         <label className="text-sm">Mode:</label>
         <select
           value={mode}
@@ -116,7 +119,7 @@ export default function AdminChunksUploadPage() {
       <div className="mb-4">
         <input
           type="file"
-          accept=".json,.csv"
+          accept=".json,.csv,application/json,text/csv"
           onChange={(e) => e.target.files && handleFile(e.target.files[0])}
           className="block"
         />
@@ -128,17 +131,21 @@ export default function AdminChunksUploadPage() {
           <details>
             <summary className="cursor-pointer select-none">Preview first 2 rows</summary>
             <pre className="bg-gray-50 p-3 rounded mt-2 text-xs overflow-x-auto">
-{JSON.stringify(rows.slice(0, 2), null, 2)}
+              {JSON.stringify(rows.slice(0, 2), null, 2)}
             </pre>
           </details>
         </div>
       )}
 
-      {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
+      {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
       {result && (
-        <div className="text-sm bg-green-50 border border-green-200 p-3 rounded mb-2">
-          <div><b>Mode:</b> {result.mode}</div>
-          <div><b>Inserted:</b> {result.inserted} | <b>Upserted:</b> {result.upserted} / {result.total}</div>
+        <div className="text-sm bg-green-50 border border-green-200 p-3 rounded mb-3">
+          <div>
+            <b>Mode:</b> {result.mode}
+          </div>
+          <div>
+            <b>Inserted:</b> {result.inserted} | <b>Upserted:</b> {result.upserted} / {result.total}
+          </div>
           {result.errors?.length ? (
             <details className="mt-2">
               <summary className="cursor-pointer">Errors ({result.errors.length})</summary>
@@ -155,6 +162,6 @@ export default function AdminChunksUploadPage() {
       >
         {loading ? "Uploading..." : "Upload"}
       </button>
-    </div>
+    </main>
   );
 }
