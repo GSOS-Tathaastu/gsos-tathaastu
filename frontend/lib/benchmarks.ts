@@ -54,8 +54,10 @@ async function loadDbDeals(): Promise<Deal[]> {
   }
 }
 
-/** ---- Fetch deals from external APIs (SerpAPI, GNews) ---- */
-async function loadExternalDeals(q: string, limit = 20): Promise<Deal[]> {
+/** ---- Fetch deals from external APIs (SerpAPI, GNews) ----
+ *  NOTE: Exported so admin/deals/summary can count external without pulling DB/local.
+ */
+export async function loadExternalDeals(q: string, limit = 20): Promise<Deal[]> {
   const out: Deal[] = [];
 
   // SerpAPI (Google News)
@@ -119,19 +121,27 @@ export async function loadAllDeals(opts: {
     const q = [opts.investorOrg, opts.stage, opts.ticket]
       .filter(Boolean)
       .join(" ");
-    external = await loadExternalDeals(q, Number(process.env.EXTERNAL_DEALS_LIMIT || 20));
+    external = await loadExternalDeals(
+      q || "pre-seed seed fintech logistics trade investment round",
+      Number(process.env.EXTERNAL_DEALS_LIMIT || 20)
+    );
   }
 
   return [...local, ...db, ...external];
 }
 
 /** ---- Find similar deals ---- */
-export function similarDeals(all: Deal[], ref: { investor?: string; stage?: string; ticket?: number }): Deal[] {
+export function similarDeals(
+  all: Deal[],
+  ref: { investor?: string; stage?: string; ticket?: number }
+): Deal[] {
   return all
     .map((d) => {
       let score = 0;
-      if (ref.investor && d.investor && d.investor.toLowerCase().includes(ref.investor.toLowerCase())) score += 2;
-      if (ref.stage && d.stage && d.stage.toLowerCase().includes(ref.stage.toLowerCase())) score += 1;
+      if (ref.investor && d.investor && d.investor.toLowerCase().includes((ref.investor || "").toLowerCase()))
+        score += 2;
+      if (ref.stage && d.stage && d.stage.toLowerCase().includes((ref.stage || "").toLowerCase()))
+        score += 1;
       if (ref.ticket && d.ticket) {
         const ratio = d.ticket / (ref.ticket || 1);
         if (ratio > 0.5 && ratio < 2) score += 1;
