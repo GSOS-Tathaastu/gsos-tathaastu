@@ -2,247 +2,212 @@
 
 import { useEffect, useState } from "react";
 
-type Ping = { path: string; ok: boolean; status: number; latencyMs: number; error?: string; body?: any };
-type HealthResponse = {
-  status: "ok" | "degraded";
-  latencyMs: number;
-  checks: {
-    nextApi: { ok: boolean; message: string };
-    mongo: { ok: boolean; message: string };
-    pages: Ping[];
-    apis: Ping[];
-    backend: any;
-  };
-  envPresence: Record<string, boolean>;
-  runtime: { node: string; vercel: boolean };
-  ts: string;
-};
-
-type MetricsResponse = {
-  ok: boolean;
-  error?: string;
-  counts: {
-    chunks: number;
+type HealthOut = {
+  next: { ok: boolean; latencyMs: number; node: string; vercel: boolean };
+  mongo: { status: string; error: string | null };
+  railway: { status: string; note?: string };
+  pages: Array<{ path: string; status: string; latency: number; error?: string }>;
+  apis: Array<{ path: string; status: string; latency: number; bodyShort?: string }>;
+  metrics: {
     companies: number;
-    investor_intents: number;
-    investor_questions: number;
     submissions: number;
-    survey_defs_logs: number;
-    survey_sessions: number;
+    submissions7d: number;
+    sessions: number;
+    chunks: number;
+    investorIntents: number;
+    investorQuestions: number;
+    surveyDefLogs: number;
   };
-  collections: { name: string; count: number }[];
-  dbStats: any;
-  extra?: { submissions_last_7d?: number };
-  runtime: { node: string; vercel: boolean; uptimeSec: number; pid: number };
-  latencyMs: number;
-  ts: string;
+  updatedAt: string;
 };
 
 export default function AdminHealthPage() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
-  const [lastUpdated, setLastUpdated] = useState("");
+  const [data, setData] = useState<HealthOut | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function refresh() {
+  async function load() {
+    setLoading(true);
+    setErr(null);
     try {
-      const [h, m] = await Promise.all([
-        fetch("/api/health", { cache: "no-store" }).then((r) => r.json()),
-        fetch("/api/admin/metrics", { cache: "no-store" }).then((r) => r.json()),
-      ]);
-      setHealth(h);
-      setMetrics(m);
-      setLastUpdated(new Date().toLocaleString());
-    } catch {
-      // ignore
+      const res = await fetch("/api/health", { cache: "no-store" });
+      const json = await res.json();
+      setData(json);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to fetch /api/health");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 10000);
-    return () => clearInterval(id);
+    load();
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 space-y-10">
+    <main className="max-w-6xl mx-auto p-6 space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">System Health</h1>
-        <button onClick={refresh} className="px-4 py-2 rounded-xl bg-black text-white">
+        <h1 className="text-3xl font-bold">System Health</h1>
+        <button
+          onClick={load}
+          className="rounded bg-black text-white px-4 py-2 hover:bg-gray-800"
+        >
           Refresh
         </button>
       </div>
 
-      {/* SUMMARY STATUS */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard
-          title="Next.js API"
-          status="ok"
-          lines={[
-            `Latency: ${health?.latencyMs ?? "—"} ms`,
-            `node=${health?.runtime.node ?? "?"} vercel=${health?.runtime.vercel ?? false}`,
-          ]}
-        />
-        <SummaryCard
-          title="MongoDB"
-          status={health?.checks.mongo.ok ? "ok" : "down"}
-          lines={[health?.checks.mongo.message || "—"]}
-        />
-        <SummaryCard
-          title="Railway Backend"
-          status={(health?.checks.backend?.ok && "ok") || "down"}
-          lines={[
-            health?.checks.backend?.error
-              ? String(health.checks.backend.error)
-              : "NEXT_PUBLIC_BACKEND_URL not set?",
-          ]}
-        />
-      </div>
+      {err && <div className="text-red-600">Error: {err}</div>}
+      {loading && <div className="opacity-80">Loading…</div>}
 
-      {/* PAGES */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Pages</h2>
-        <div className="rounded-2xl border bg-white p-4">
-          <Table
-            headers={["Path", "Status", "Latency", "Error"]}
-            rows={(health?.checks.pages || []).map((p) => [
-              p.path,
-              p.ok ? "OK" : String(p.status),
-              `${p.latencyMs} ms`,
-              p.error || "",
-            ])}
-          />
-        </div>
-      </section>
+      {data && (
+        <>
+          {/* Top cards */}
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-xl border p-4">
+              <div className="text-sm text-gray-600">Next.js API</div>
+              <div className="mt-1">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                    data.next.ok
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {data.next.ok ? "OK" : "Down"}
+                </span>
+              </div>
+              <div className="text-sm mt-2">
+                Latency: {data.next.latencyMs || 0} ms
+              </div>
+              <div className="text-xs text-gray-500">
+                node={data.next.node} vercel={String(data.next.vercel)}
+              </div>
+            </div>
 
-      {/* APIs */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">APIs</h2>
-        <div className="rounded-2xl border bg-white p-4">
-          <Table
-            headers={["Path", "Status", "Latency", "Error / Body (short)"]}
-            rows={(health?.checks.apis || []).map((p) => [
-              p.path,
-              p.ok ? "OK" : String(p.status),
-              `${p.latencyMs} ms`,
-              p.error ? (
-                <span className="text-red-600">{p.error}</span>
-              ) : (
-                JSON.stringify(p.body).slice(0, 160)
-              ),
-            ])}
-          />
-        </div>
-      </section>
+            <div className="rounded-xl border p-4">
+              <div className="text-sm text-gray-600">MongoDB</div>
+              <div className="mt-1">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                    data.mongo.status === "connected"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {data.mongo.status}
+                </span>
+              </div>
+              {data.mongo.error && (
+                <div className="text-xs text-red-600 mt-2">{data.mongo.error}</div>
+              )}
+            </div>
 
-      {/* DATABASE METRICS */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Database Metrics</h2>
-          <span className="text-xs text-gray-500">
-            {metrics?.ok ? "connected" : metrics?.error || "not configured"}
-          </span>
-        </div>
+            <div className="rounded-xl border p-4">
+              <div className="text-sm text-gray-600">Railway Backend</div>
+              <div className="mt-1">
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-red-100 text-red-800">
+                  {data.railway.status || "Down"}
+                </span>
+              </div>
+              {data.railway.note && (
+                <div className="text-xs text-gray-600 mt-2">{data.railway.note}</div>
+              )}
+            </div>
+          </section>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="Companies" value={metrics?.counts.companies ?? 0} />
-          <Metric label="Submissions" value={metrics?.counts.submissions ?? 0} />
-          <Metric label="Submissions (7d)" value={metrics?.extra?.submissions_last_7d ?? 0} />
-          <Metric label="Survey Sessions" value={metrics?.counts.survey_sessions ?? 0} />
-          <Metric label="Chunks" value={metrics?.counts.chunks ?? 0} />
-          <Metric label="Investor Intents" value={metrics?.counts.investor_intents ?? 0} />
-          <Metric label="Investor Questions" value={metrics?.counts.investor_questions ?? 0} />
-          <Metric label="Survey Def Logs" value={metrics?.counts.survey_defs_logs ?? 0} />
-        </div>
+          {/* Pages */}
+          <section>
+            <h2 className="text-xl font-semibold mt-4 mb-2">Pages</h2>
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-3">Path</th>
+                    <th className="text-left p-3">Status</th>
+                    <th className="text-left p-3">Latency</th>
+                    <th className="text-left p-3">Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.pages || []).map((p, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="p-3">{p.path}</td>
+                      <td className="p-3">{p.status}</td>
+                      <td className="p-3">{p.latency} ms</td>
+                      <td className="p-3 text-red-600">{p.error || ""}</td>
+                    </tr>
+                  ))}
+                  {(!data.pages || data.pages.length === 0) && (
+                    <tr className="border-t">
+                      <td className="p-3" colSpan={4}>
+                        <em>No page checks returned.</em>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-        {metrics?.collections?.length ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <div className="text-sm font-medium mb-2">Collections (top 12)</div>
-            <Table
-              headers={["Collection", "Count"]}
-              rows={metrics.collections.map((c) => [c.name, c.count])}
-            />
-          </div>
-        ) : null}
-      </section>
+          {/* APIs */}
+          <section>
+            <h2 className="text-xl font-semibold mt-6 mb-2">APIs</h2>
+            <div className="overflow-auto rounded-xl border">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-3">Path</th>
+                    <th className="text-left p-3">Status</th>
+                    <th className="text-left p-3">Latency</th>
+                    <th className="text-left p-3">Error / Body (short)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.apis || []).map((a, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="p-3">{a.path}</td>
+                      <td className="p-3">{a.status}</td>
+                      <td className="p-3">{a.latency} ms</td>
+                      <td className="p-3">{a.bodyShort || ""}</td>
+                    </tr>
+                  ))}
+                  {(!data.apis || data.apis.length === 0) && (
+                    <tr className="border-t">
+                      <td className="p-3" colSpan={4}>
+                        <em>No API checks returned.</em>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-      <div className="text-xs text-gray-500">Last updated: {lastUpdated || "—"}</div>
-    </div>
-  );
-}
-
-/* ---------- UI bits ---------- */
-
-function SummaryCard({
-  title,
-  status,
-  lines,
-}: {
-  title: string;
-  status: "ok" | "down" | string | boolean | undefined;
-  lines: string[];
-}) {
-  const ok = status === "ok" || status === true;
-  return (
-    <div className="rounded-2xl border bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div className="font-semibold">{title}</div>
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-          }`}
-        >
-          {ok ? "OK" : "Down"}
-        </span>
-      </div>
-      <div className="mt-2 text-sm text-gray-600 space-y-1">
-        {lines.map((l, i) => (
-          <div key={i}>{l}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Table({
-  headers,
-  rows,
-}: {
-  headers: (string | JSX.Element)[];
-  rows: (Array<string | number | JSX.Element>)[];
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left border-b">
-            {headers.map((h, i) => (
-              <th key={i} className="py-2 pr-4">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-b last:border-0">
-              {r.map((c, j) => (
-                <td key={j} className="py-2 pr-4 align-top">
-                  {c}
-                </td>
+          {/* Metrics */}
+          <section>
+            <h2 className="text-xl font-semibold mt-6 mb-2">Database Metrics</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {Object.entries(data.metrics || {}).map(([k, v]) => (
+                <div key={k} className="rounded-xl border p-4">
+                  <div className="text-sm text-gray-600">{labelize(k)}</div>
+                  <div className="text-2xl font-bold mt-1">{v as any}</div>
+                </div>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">
+              Last updated: {new Date(data.updatedAt).toLocaleString()}
+            </div>
+          </section>
+        </>
+      )}
+    </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="rounded-2xl border bg-white p-4">
-      <div className="text-gray-600 text-sm">{label}</div>
-      <div className="text-xl font-semibold mt-1">{String(value)}</div>
-    </div>
-  );
+function labelize(s: string) {
+  return s
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
 }

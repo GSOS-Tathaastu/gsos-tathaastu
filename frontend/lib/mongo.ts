@@ -1,26 +1,23 @@
-// frontend/lib/mongo.ts
-import { MongoClient, Db } from "mongodb";
+import { MongoClient } from "mongodb";
+
+const URI =
+  process.env.MONGO_URI ||
+  process.env.MONGODB_URI ||           // common Atlas var
+  "";                                  // do NOT use NEXT_PUBLIC_* here
+
+const DB_NAME = process.env.MONGODB_DB || "gsos";
 
 let cachedClient: MongoClient | null = null;
 
-/** Connects to MongoDB or returns null (never throws on import) */
-export async function getClientOrNull(): Promise<MongoClient | null> {
-  const uri = process.env.MONGO_URI;
-  if (!uri) return null;
-  if (cachedClient) return cachedClient;
+export async function getDbOrNull() {
+  if (!URI) return null;
   try {
-    const client = new MongoClient(uri);
+    if (cachedClient) return cachedClient.db(DB_NAME);
+    const client = new MongoClient(URI);
     await client.connect();
     cachedClient = client;
-    return cachedClient;
+    return client.db(DB_NAME);
   } catch {
     return null;
   }
-}
-
-/** Returns Db or null (db name from MONGO_DB, default 'gsos') */
-export async function getDbOrNull(): Promise<Db | null> {
-  const client = await getClientOrNull();
-  if (!client) return null;
-  return client.db(process.env.MONGO_DB || "gsos");
 }

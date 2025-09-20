@@ -1,25 +1,26 @@
-// frontend/middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+const INVESTOR_COOKIE = "gsos_investor_session";
+const ADMIN_COOKIE = "gsos_admin_session";
+
 export function middleware(req: NextRequest) {
-  const url = req.nextUrl.clone();
+  const url = req.nextUrl;
 
-  const adminCookie = req.cookies.get("auth_admin")?.value;
-  const invCookie = req.cookies.get("auth_investor")?.value;
-
-  if (url.pathname.startsWith("/admin")) {
-    if (adminCookie !== "1") {
-      url.pathname = "/login";
-      url.searchParams.set("area", "admin");
+  // Protect /investors/dashboard
+  if (url.pathname.startsWith("/investors/dashboard")) {
+    const token = req.cookies.get(INVESTOR_COOKIE)?.value;
+    if (!token) {
+      url.pathname = "/investors";
       return NextResponse.redirect(url);
     }
   }
 
-  if (url.pathname.startsWith("/investors")) {
-    if (invCookie !== "1") {
-      url.pathname = "/login";
-      url.searchParams.set("area", "investor");
+  // Protect /admin (except /admin/login)
+  if (url.pathname.startsWith("/admin") && !url.pathname.startsWith("/admin/login")) {
+    const token = req.cookies.get(ADMIN_COOKIE)?.value;
+    if (!token) {
+      url.pathname = "/admin/login";
       return NextResponse.redirect(url);
     }
   }
@@ -28,5 +29,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/investors/:path*"],
+  matcher: ["/investors/dashboard/:path*", "/admin/:path*"],
 };

@@ -1,20 +1,46 @@
 // frontend/app/api/investors/auth/route.ts
-import { NextResponse } from "next/server";
-import { cookieHeaderSet, sign } from "@/lib/cookies";
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 
-export async function POST(req: Request) {
+const COOKIE_NAME = "gsos_investor_session";
+
+export async function POST(req: NextRequest) {
   try {
-    const { password } = await req.json();
-    const expected = process.env.INVESTOR_ACCESS_KEY;
-    if (!expected) return NextResponse.json({ error: "Server missing key" }, { status: 500 });
-    if (!password || password !== expected) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+    const { key } = await req.json();
+    if (!key) {
+      return NextResponse.json({ ok: false, error: "Missing key" }, { status: 400 });
     }
-    const value = sign("ok");
+
+    const expected = process.env.INVESTOR_KEY;
+    if (!expected) {
+      return NextResponse.json({ ok: false, error: "Server misconfigured" }, { status: 500 });
+    }
+
+    if (key !== expected) {
+      return NextResponse.json({ ok: false, error: "Invalid key" }, { status: 401 });
+    }
+
+    // ✅ valid → set cookie
+    const sessionToken = crypto.randomBytes(32).toString("hex");
     const res = NextResponse.json({ ok: true });
-    res.headers.set("Set-Cookie", `${cookieHeaderSet()}`.replace(`${"; HttpOnly"}`, `=${value}; HttpOnly`));
+
+    res.cookies.set(COOKIE_NAME, sessionToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60, // 1h
+    });
+
     return res;
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || "auth_failed" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e.message || "Auth failed" }, { status: 500 });
   }
+}
+
+export async function DELETE() {
+  // logout
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(COOKIE_NAME, "", { maxAge: 0, path: "/" });
+  return res;
 }

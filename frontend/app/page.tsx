@@ -2,162 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import GsosAnimation from "@/components/GsosAnimation";
-
-/* -------------------------
-   GSOS Orbit Animation
--------------------------- */
-function GsosAnimation() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const parentRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
-    let raf = 0;
-
-    function resize() {
-      const w = parentRef.current?.clientWidth ?? 900;
-      const width = Math.min(1100, Math.max(640, w));
-      const height = Math.round(width * 0.5);
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    resize();
-    const ro = new ResizeObserver(resize);
-    if (parentRef.current) ro.observe(parentRef.current);
-
-    const nodes = [
-      { label: "Identity", color: "#22c55e", baseAngle: 0 },
-      { label: "Finance", color: "#f59e0b", baseAngle: 60 },
-      { label: "Logistics", color: "#3b82f6", baseAngle: 120 },
-      { label: "Compliance", color: "#8b5cf6", baseAngle: 180 },
-      { label: "Risk", color: "#ef4444", baseAngle: 240 },
-      { label: "Data", color: "#06b6d4", baseAngle: 300 },
-    ];
-
-    function draw(now: number) {
-      const { width, height } = canvas;
-      const cx = width / 2;
-      const cy = height / 2;
-      ctx.clearRect(0, 0, width, height);
-
-      const orbitR = Math.min(width, height) * 0.28;
-      const t = now / 1000;
-
-      nodes.forEach((n, i) => {
-        const ang =
-          ((n.baseAngle + i * 0) * Math.PI) / 180 +
-          t * 0.4 +
-          Math.sin(t * 0.6 + i) * 0.06;
-        const x = cx + Math.cos(ang) * orbitR;
-        const y = cy + Math.sin(ang) * orbitR;
-
-        ctx.beginPath();
-        ctx.fillStyle = n.color;
-        ctx.arc(x, y, 16, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = "#111827";
-        ctx.font = "600 12px Inter, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(n.label, x, y + 30);
-      });
-
-      // center hub
-      ctx.beginPath();
-      ctx.fillStyle = "#111827";
-      ctx.arc(cx, cy, 34, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "white";
-      ctx.font = "600 12px Inter, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("GSOS", cx, cy - 7);
-      ctx.font = "500 10px Inter, sans-serif";
-      ctx.fillText("Core", cx, cy + 9);
-
-      raf = requestAnimationFrame(draw);
-    }
-    raf = requestAnimationFrame(draw);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
-
-  return (
-    <div
-      ref={parentRef}
-      className="w-full rounded-2xl border bg-white shadow p-4"
-    >
-      <h3 className="text-xl font-semibold mb-2 text-gray-900">
-        How GSOS Orchestrates Trust
-      </h3>
-      <canvas ref={canvasRef} className="w-full rounded-xl" />
-    </div>
-  );
-}
-
-/* -------------------------
-   Trade KPI Section
--------------------------- */
-function TradeKpiSection() {
-  const [loading, setLoading] = useState(true);
-  const [kpis, setKpis] = useState<{ label: string; value: string | number }[]>([]);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch("/api/trade", { cache: "no-store" });
-        const data = await res.json();
-        setKpis(data.kpis || []);
-        setUpdatedAt(data.updatedAt || null);
-      } catch (e) {
-        console.error("Trade API failed", e);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
-
-  return (
-    <section className="bg-gray-50 dark:bg-gray-900 py-10 rounded-2xl shadow">
-      <div className="max-w-5xl mx-auto px-4">
-        <h2 className="text-2xl font-bold mb-6">🌍 World Trade Snapshot</h2>
-        {loading ? (
-          <p className="text-gray-500">Loading trade data...</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {kpis.map((k) => (
-              <div
-                key={k.label}
-                className="rounded-xl bg-white dark:bg-gray-800 shadow p-6 text-center"
-              >
-                <p className="text-gray-500 text-sm">{k.label}</p>
-                <p className="text-xl font-semibold">{k.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-        {updatedAt && (
-          <p className="mt-4 text-xs text-gray-400">
-            Last updated: {new Date(updatedAt).toLocaleString()}
-          </p>
-        )}
-      </div>
-    </section>
-  );
-}
+import { useState } from "react";
+import GsosAnimation from "@/components/GsosAnimation"; // ← keep this import
+// (TradeKpiSection removed per your request)
 
 /* -------------------------
    Stakeholder Stories Tabs
@@ -177,9 +24,7 @@ function StakeholderTabs() {
   const [active, setActive] = useState<keyof typeof EMBEDS>("SME");
   return (
     <div className="w-full">
-      <h2 className="text-2xl font-bold text-center mb-6">
-        Stakeholder Stories
-      </h2>
+      <h2 className="text-2xl font-bold text-center mb-6">Stakeholder Stories</h2>
       <div className="flex flex-wrap justify-center gap-3 mb-6">
         {Object.keys(EMBEDS).map((k) => (
           <button
@@ -256,13 +101,10 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ANIMATION */}
+        {/* ANIMATION (imported component) */}
         <GsosAnimation />
 
-        {/* TRADE KPIs */}
-        <TradeKpiSection />
-
-        {/* REALITY CHECK IMAGE */}
+        {/* REALITY CHECK IMAGE (ensure this file exists in /public) */}
         <section>
           <Image
             src="/The-Reality-Check-Supply-Chain-Fragmentation.png"
@@ -273,10 +115,10 @@ export default function HomePage() {
           />
         </section>
 
-        {/* LOGO / TAGLINE */}
+        {/* LOGO / TAGLINE (use a safe filename in /public) */}
         <section className="text-center">
           <Image
-            src="/ChatGPT Image Sep 2, 2025, 12_11_30 PM.png"
+            src="/tathaastu-logo.png"
             alt="TATHAASTU Logo"
             width={600}
             height={600}
