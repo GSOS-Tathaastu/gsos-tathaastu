@@ -60,7 +60,6 @@ type WBCard = {
 
 function fmtMoney(n: number | null) {
   if (n == null) return "—";
-  // format billions/trillions nicely
   const abs = Math.abs(n);
   if (abs >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
@@ -71,7 +70,6 @@ function fmtMoney(n: number | null) {
 export default function HomeLandingClient() {
   const [openStep, setOpenStep] = useState<StepKey | null>(null);
 
-  // Static headline stats
   const stats = useMemo(
     () => [
       { label: "Global Trade", value: "$32T", sub: "Total goods & services" },
@@ -82,8 +80,8 @@ export default function HomeLandingClient() {
     []
   );
 
-  // World Bank snapshot (defaults to India; change country=IND below if you want WLD or another ISO3)
   const [wbCards, setWbCards] = useState<WBCard[] | null>(null);
+
   useEffect(() => {
     let alive = true;
     fetch("/api/worldbank?country=IND")
@@ -122,7 +120,7 @@ export default function HomeLandingClient() {
         setWbCards(cards);
       })
       .catch(() => {
-        // silent; if it fails we just hide the block
+        // swallow errors silently
       });
     return () => {
       alive = false;
@@ -140,9 +138,7 @@ export default function HomeLandingClient() {
                 GSOS – Global Supply Operating System
               </h1>
               <p className="text-gray-700 mt-5 text-lg">
-                Turn fragmented trade data into decisions. Ingest your docs, analyze bottlenecks
-                with AI, act on replenishment & finance recommendations, and scale cross-border —
-                with confidence and proof.
+                Turn fragmented trade data into decisions. Ingest your docs, analyze bottlenecks with AI, act on replenishment & finance recommendations, and scale cross-border — with confidence and proof.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -189,34 +185,23 @@ export default function HomeLandingClient() {
         </div>
       </section>
 
-      {/* CRISIS (requested text) */}
+      {/* CRISIS */}
       <section id="crisis" className="py-16 px-6 max-w-5xl mx-auto">
         <h2 className="text-3xl font-bold mb-6">
           The Global Trade Crisis: A $32 Trillion Opportunity
         </h2>
         <div className="prose max-w-none prose-indigo">
           <p>
-            Global trade has shaped civilizations for millennia—from Silk Road caravans to Dutch
-            East India Companies. Yet despite breathtaking technological advances, today&apos;s{" "}
-            <strong>$32 trillion</strong> trade ecosystem remains astonishingly fragmented,
-            paper-heavy, and fraud-prone.
+            Global trade has shaped civilizations for millennia—from Silk Road caravans to Dutch East India Companies. Yet despite breathtaking technological advances, today&apos;s <strong>$32 trillion</strong> trade ecosystem remains astonishingly fragmented, paper-heavy, and fraud-prone.
           </p>
           <p>
-            The costs are staggering: over <strong>$50 billion</strong> in annual trade finance
-            fraud, a <strong>$2.5 trillion</strong> financing gap for legitimate exporters, and{" "}
-            <strong>10–15%</strong> of customs revenue lost to under-invoicing. These aren&apos;t
-            marginal issues—they&apos;re systemic weaknesses that erode global GDP and
-            disproportionately hurt developing economies.
+            The costs are staggering: over <strong>$50 billion</strong> in annual trade finance fraud, a <strong>$2.5 trillion</strong> financing gap for legitimate exporters, and <strong>10–15%</strong> of customs revenue lost to under-invoicing. These aren&apos;t marginal issues—they&apos;re systemic weaknesses that erode global GDP and disproportionately hurt developing economies.
           </p>
           <p>
-            <strong>India</strong> exemplifies this paradox. While leading in digital infrastructure
-            with Aadhaar and UPI, its trade ecosystem still sees exporters waiting 30–90 days for
-            payments and SMEs—contributing 45% of exports—excluded from affordable trade finance due
-            to documentation mistrust.
+            <strong>India</strong> exemplifies this paradox. While leading in digital infrastructure with Aadhaar and UPI, its trade ecosystem still sees exporters waiting 30–90 days for payments and SMEs—contributing 45% of exports—excluded from affordable trade finance due to documentation mistrust.
           </p>
         </div>
 
-        {/* Optional posters */}
         <div className="grid md:grid-cols-3 gap-6 mt-10">
           {["/poster1.png", "/poster2.png", "/poster3.png"].map((p) => (
             <div key={p} className="rounded-xl border overflow-hidden bg-white">
@@ -226,7 +211,7 @@ export default function HomeLandingClient() {
         </div>
       </section>
 
-      {/* World Bank Snapshot (shows only if API succeeds) */}
+      {/* World Bank Snapshot */}
       {wbCards && (
         <section className="py-10 px-6 max-w-5xl mx-auto">
           <h3 className="text-2xl font-semibold mb-4">World Bank Snapshot — India</h3>
@@ -245,10 +230,9 @@ export default function HomeLandingClient() {
         </section>
       )}
 
-      {/* How GSOS Works — Interactive Stepper */}
+      {/* How GSOS Works */}
       <section className="bg-indigo-50 py-20 px-6">
         <h2 className="text-3xl font-bold text-center mb-12">How GSOS Works</h2>
-
         <div className="relative max-w-6xl mx-auto">
           <div className="grid md:grid-cols-4 gap-6">
             {(Object.keys(STEP_CONTENT) as StepKey[]).map((key, i) => {
@@ -275,23 +259,20 @@ export default function HomeLandingClient() {
             })}
           </div>
 
-          {/* Expanded panel */}
-          <div className="mt-8">
-            {openStep && (
-              <div className="bg-white rounded-2xl border shadow-md p-6 md:p-8 transition">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-2xl">{STEP_CONTENT[openStep].icon}</span>
-                  <h3 className="text-xl font-semibold">{STEP_CONTENT[openStep].title}</h3>
-                </div>
-                <p className="text-gray-700 mb-4">{STEP_CONTENT[openStep].desc}</p>
-                <ul className="list-disc ml-6 space-y-2 text-gray-700">
-                  {STEP_CONTENT[openStep].details.map((d) => (
-                    <li key={d}>{d}</li>
-                  ))}
-                </ul>
+          {openStep && (
+            <div className="mt-8 bg-white rounded-2xl border shadow-md p-6 md:p-8 transition">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">{STEP_CONTENT[openStep].icon}</span>
+                <h3 className="text-xl font-semibold">{STEP_CONTENT[openStep].title}</h3>
               </div>
-            )}
-          </div>
+              <p className="text-gray-700 mb-4">{STEP_CONTENT[openStep].desc}</p>
+              <ul className="list-disc ml-6 space-y-2 text-gray-700">
+                {STEP_CONTENT[openStep].details.map((d) => (
+                  <li key={d}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <style jsx>{`
@@ -315,8 +296,7 @@ export default function HomeLandingClient() {
         <div className="max-w-5xl mx-auto bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl text-white p-8 md:p-12 shadow-lg">
           <h3 className="text-2xl md:text-3xl font-bold">Ready to see your savings & scale map?</h3>
           <p className="mt-2 text-indigo-100">
-            Take the readiness survey — get grounded insights, simulated savings, and a near-term
-            GSOS plan with citations.
+            Take the readiness survey — get grounded insights, simulated savings, and a near-term GSOS plan with citations.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
@@ -335,11 +315,16 @@ export default function HomeLandingClient() {
         </div>
       </section>
 
-      {/* Optional video (safe if missing) */}
+      {/* Video */}
       <section className="py-8 px-6 max-w-5xl mx-auto">
         <h3 className="text-xl font-semibold mb-4">Inside GSOS (Product Walkthrough)</h3>
         <div className="aspect-video rounded-xl overflow-hidden border bg-black">
-          <video className="w-full h-full" controls poster="/video-poster.png" src="/videos/gsos-overview.mp4" />
+          <video
+            className="w-full h-full"
+            controls
+            poster="/video-poster.png"
+            src="/videos/gsos-overview.mp4"
+          />
         </div>
       </section>
     </main>
