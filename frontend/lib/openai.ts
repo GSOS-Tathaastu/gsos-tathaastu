@@ -1,10 +1,15 @@
-const key = process.env.OPENAI_API_KEY;
-if (!key) {
-  // Keep it soft-failing in dev; hard fail in prod as you like
-  console.warn("OPENAI_API_KEY not set; investor Q&A will be disabled.");
+import OpenAI from "openai";
+
+// Pick model from env, fallback to gpt-4o-mini
+export const OPENAI_MODEL =
+  process.env.CHAT_MODEL ||
+  process.env.OPENAI_MODEL ||
+  "gpt-4o-mini";
+
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  throw new Error("OPENAI_API_KEY is not set in environment variables");
 }
 
-export function getOpenAIKey() {
-  if (!key) throw new Error("OPENAI_API_KEY not set");
-  return key;
-}
+// Export a single OpenAI client instance
+export const openai = new OpenAI({ apiKey });

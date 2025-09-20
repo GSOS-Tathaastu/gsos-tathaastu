@@ -48,3 +48,13 @@ export type SurveySession = {
   // - open: string
   answers: Array<{ qid: string; value: string | string[] | number }>;
 };
+
+// Shared Simulation type for results rendering
+export interface Simulation {
+  savingsEstimate?: {
+    shortTermPct?: number;
+    midTermPct?: number;
+    longTermPct?: number;
+  };
+  // Extend with more fields as needed
+}

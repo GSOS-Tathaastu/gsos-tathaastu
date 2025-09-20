@@ -54,17 +54,22 @@ async function recordUsage(u: UsageRec) {
 
 /**
  * Wrapper for chat completions with token usage logging.
+ * NOTE: We explicitly disable streaming here to avoid union type issues.
  */
 export async function chatWithFallback(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   opts: Partial<OpenAI.Chat.Completions.ChatCompletionCreateParams> = {},
   feature?: string
 ): Promise<string> {
+  // Ensure non-streaming (so result is ChatCompletion, not Stream<ChatCompletionChunk>)
+  const { stream: _ignoreStream, ...rest } = opts as any;
+
   const res = await openai.chat.completions.create({
     model: CHAT_MODEL,
     messages,
     temperature: 0.2,
-    ...opts,
+    stream: false, // <- force non-streaming to keep types simple
+    ...rest,
   });
 
   const text = res.choices?.[0]?.message?.content || "";
