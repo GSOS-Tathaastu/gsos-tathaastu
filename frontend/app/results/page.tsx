@@ -1,50 +1,90 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SurveyResults from "@/components/SurveyResults";
 
-export default function ResultsPage() {
-  const sp = useSearchParams();
-  const sessionId =
-    sp.get("sessionId") || (typeof window !== "undefined" ? localStorage.getItem("gsos_session") || "" : "");
+type Simulation = {
+  savingsEstimate?: { shortTermPct: number; midTermPct: number; longTermPct: number };
+  goals?: { short: string[]; mid: string[]; long: string[] };
+  gsosValue?: string[];
+  onboardingWillingnessQuestion?: boolean;
+  plans?: {
+    freemium?: string[];
+    subscription?: { tier: string; price: string; features: string[] }[];
+  };
+};
+
+function safeParseJSON(text: string | null): any {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+export default function ResultsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  const sessionId = useMemo(() => {
+    const v = searchParams?.sessionId;
+    return Array.isArray(v) ? v[0] : v || "";
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
-  const [simulation, setSimulation] = useState<any>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [simulation, setSimulation] = useState<Simulation | null>(null);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      setSimulation(null);
+
+      if (!sessionId) {
+        setError("Missing sessionId");
+        setLoading(false);
+        return;
+      }
+
       try {
-        setLoading(true);
-        setErr(null);
-        const r = await fetch(`/api/survey/answer?sessionId=${encodeURIComponent(sessionId)}`, {
+        const res = await fetch(`/api/survey/simulation?sessionId=${encodeURIComponent(sessionId)}`, {
           cache: "no-store",
         });
-        const j = await r.json();
-        if (!r.ok || !j?.ok) throw new Error(j?.error || `Fetch failed (${r.status})`);
-        setSimulation(j.simulation || j.data || null);
+        const txt = await res.text();         // ← don’t assume JSON
+        const data = safeParseJSON(txt);
+
+        if (!res.ok || !data || data.ok === false) {
+          const msg = data?.error || `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        if (!cancelled) setSimulation(data.simulation || null);
       } catch (e: any) {
-        setErr(e?.message || "Unable to load results.");
+        if (!cancelled) setError(e?.message || "Failed to load results");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
+    }
+    run();
+    return () => { cancelled = true; };
   }, [sessionId]);
 
-  if (!sessionId) {
+  if (loading) {
+    return <div className="max-w-3xl mx-auto p-6 text-gray-600">Loading results…</div>;
+  }
+  if (error) {
     return (
-      <main className="max-w-2xl mx-auto p-6">
-        <h1 className="text-xl font-semibold mb-2">Missing session</h1>
-        <p className="text-gray-600">
-          Please start from <a className="text-indigo-600 underline" href="/start">Step-0</a>.
-        </p>
-      </main>
+      <div className="max-w-3xl mx-auto p-6 text-red-600">
+        Error: {String(error)}
+      </div>
     );
   }
-
-  if (loading) return <main className="max-w-3xl mx-auto p-6">Loading…</main>;
-  if (err) return <main className="max-w-3xl mx-auto p-6 text-red-600">Error: {err}</main>;
+  if (!simulation) {
+    return (
+      <div className="max-w-3xl mx-auto p-6 text-gray-600">
+        No results available yet.
+      </div>
+    );
+  }
 
   return <SurveyResults simulation={simulation} />;
 }

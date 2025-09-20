@@ -1,46 +1,40 @@
 // frontend/app/api/investors/auth/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
+import { NextResponse } from "next/server";
+import { getAcceptedInvestorKey, signToken, investorCookie } from "@/lib/auth";
 
-const COOKIE_NAME = "gsos_investor_session";
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { key } = await req.json();
-    if (!key) {
-      return NextResponse.json({ ok: false, error: "Missing key" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const postedKey = (body?.key || "").toString().trim();
+
+    const accepted = getAcceptedInvestorKey();
+
+    const visibility = {
+      INVESTOR_KEY: !!process.env.INVESTOR_KEY,
+      INVESTOR_ACCESS_KEY: !!process.env.INVESTOR_ACCESS_KEY,
+      INVESTOR_PASSWORD: !!process.env.INVESTOR_PASSWORD,
+      NEXT_PUBLIC_INVESTOR_ACCESS_KEY: !!process.env.NEXT_PUBLIC_INVESTOR_ACCESS_KEY,
+    };
+
+    if (!accepted) {
+      return NextResponse.json(
+        { ok: false, error: "Investor access key not configured on server", visibility },
+        { status: 200 }
+      );
     }
 
-    const expected = process.env.INVESTOR_KEY;
-    if (!expected) {
-      return NextResponse.json({ ok: false, error: "Server misconfigured" }, { status: 500 });
+    if (postedKey !== accepted) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid key", visibility },
+        { status: 200 }
+      );
     }
 
-    if (key !== expected) {
-      return NextResponse.json({ ok: false, error: "Invalid key" }, { status: 401 });
-    }
-
-    // ✅ valid → set cookie
-    const sessionToken = crypto.randomBytes(32).toString("hex");
+    const token = signToken({ role: "investor", ts: Date.now() });
     const res = NextResponse.json({ ok: true });
-
-    res.cookies.set(COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60, // 1h
-    });
-
+    res.headers.append("Set-Cookie", investorCookie.serialize(token, 3600));
     return res;
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "Auth failed" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "auth_failed" }, { status: 500 });
   }
-}
-
-export async function DELETE() {
-  // logout
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, "", { maxAge: 0, path: "/" });
-  return res;
 }

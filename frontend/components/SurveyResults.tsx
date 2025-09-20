@@ -1,94 +1,123 @@
 "use client";
 
+import React from "react";
+
 type Simulation = {
-  savingsEstimate: { shortTermPct: number; midTermPct: number; longTermPct: number };
-  goals: { short: string[]; mid: string[]; long: string[] };
-  gsosValue: string[];
-  onboardingWillingnessQuestion: boolean;
-  plans: {
-    freemium: string[];
-    subscription: { tier: string; price: string; features: string[] }[];
+  savingsEstimate: { shortTermPct?: number; midTermPct?: number; longTermPct?: number };
+  goals?: { short?: string[]; mid?: string[]; long?: string[] };
+  gsosValue?: string[];
+  onboardingWillingnessQuestion?: boolean;
+  plans?: {
+    freemium?: string[];
+    subscription?: { tier: string; price: string; features: string[] }[];
   };
 };
 
-export default function SurveyResults({ simulation }: { simulation: Simulation }) {
-  if (!simulation) {
-    return <p className="text-gray-500">No simulation data available.</p>;
-  }
+function Pill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl bg-indigo-700 text-white p-4 w-full">
+      <div className="text-2xl font-extrabold">{value}</div>
+      <div className="text-xs opacity-90">{label}</div>
+    </div>
+  );
+}
+
+function Card({ title, children, tone="slate" }:{
+  title: string; children: React.ReactNode; tone?: "slate"|"stone"|"zinc";
+}) {
+  const toneClass = {
+    slate: "bg-slate-900",
+    stone: "bg-stone-900",
+    zinc:  "bg-zinc-900"
+  }[tone];
 
   return (
-    <section className="max-w-5xl mx-auto py-10 px-6">
-      <h2 className="text-3xl font-bold mb-6">📊 Your GSOS Simulation</h2>
+    <div className={`rounded-2xl p-5 text-slate-100 shadow ${toneClass}`}>
+      <h4 className="font-semibold mb-3">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+export default function SurveyResults({ simulation }: { simulation: Simulation }) {
+  const s = simulation?.savingsEstimate || {};
+  const pct = (n?: number) => (typeof n === "number" ? `${n}%` : "—");
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <h2 className="text-3xl font-extrabold mb-4 flex items-center gap-3">
+        <span className="inline-block w-2 h-6 bg-indigo-600 rounded-full" />
+        Your GSOS Simulation
+      </h2>
 
       {/* Savings */}
-      <div className="bg-blue-50 dark:bg-blue-900 p-6 rounded-2xl mb-8 shadow">
-        <h3 className="font-semibold mb-4">Estimated Savings</h3>
-        <ul className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <li className="text-center">
-            <p className="text-lg font-bold">{simulation.savingsEstimate.shortTermPct}%</p>
-            <p className="text-sm text-gray-600">Short-term</p>
-          </li>
-          <li className="text-center">
-            <p className="text-lg font-bold">{simulation.savingsEstimate.midTermPct}%</p>
-            <p className="text-sm text-gray-600">Mid-term</p>
-          </li>
-          <li className="text-center">
-            <p className="text-lg font-bold">{simulation.savingsEstimate.longTermPct}%</p>
-            <p className="text-sm text-gray-600">Long-term</p>
-          </li>
-        </ul>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+        <Pill label="Short-term" value={pct(s.shortTermPct)} />
+        <Pill label="Mid-term"   value={pct(s.midTermPct)}   />
+        <Pill label="Long-term"  value={pct(s.longTermPct)}  />
       </div>
 
-      {/* Goals */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow">
-          <h4 className="font-semibold mb-2">Short-term Goals</h4>
-          <ul className="list-disc ml-4 text-sm">
-            {(simulation.goals.short || []).map((g) => <li key={g}>{g}</li>)}
+      {/* Goals & Value */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <Card title="Short-term Goals">
+          <ul className="list-disc ml-5 space-y-1 text-sm">
+            {(simulation.goals?.short ?? []).map((g, i) => <li key={i}>{g}</li>)}
           </ul>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow">
-          <h4 className="font-semibold mb-2">Mid-term Goals</h4>
-          <ul className="list-disc ml-4 text-sm">
-            {(simulation.goals.mid || []).map((g) => <li key={g}>{g}</li>)}
+        </Card>
+        <Card title="Mid-term Goals" tone="stone">
+          <ul className="list-disc ml-5 space-y-1 text-sm">
+            {(simulation.goals?.mid ?? []).map((g, i) => <li key={i}>{g}</li>)}
           </ul>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow">
-          <h4 className="font-semibold mb-2">Long-term Goals</h4>
-          <ul className="list-disc ml-4 text-sm">
-            {(simulation.goals.long || []).map((g) => <li key={g}>{g}</li>)}
+        </Card>
+        <Card title="Long-term Goals" tone="zinc">
+          <ul className="list-disc ml-5 space-y-1 text-sm">
+            {(simulation.goals?.long ?? []).map((g, i) => <li key={i}>{g}</li>)}
           </ul>
-        </div>
+        </Card>
       </div>
 
-      {/* GSOS Value */}
-      <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-2xl mb-8 shadow">
-        <h4 className="font-semibold mb-2">How GSOS Helps</h4>
-        <ul className="list-disc ml-4 text-sm">
-          {(simulation.gsosValue || []).map((v) => <li key={v}>{v}</li>)}
+      <Card title="How GSOS Helps" tone="slate">
+        <ul className="list-disc ml-5 space-y-1 text-sm">
+          {(simulation.gsosValue ?? []).map((x, i) => <li key={i}>{x}</li>)}
         </ul>
-      </div>
+      </Card>
 
       {/* Plans */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="bg-green-50 dark:bg-green-900 p-6 rounded-2xl shadow">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-8">
+        <div className="rounded-2xl p-6 bg-emerald-900 text-emerald-50 shadow">
           <h4 className="font-semibold mb-2">Freemium Plan</h4>
-          <ul className="list-disc ml-4 text-sm">
-            {(simulation.plans.freemium || []).map((f) => <li key={f}>{f}</li>)}
+          <ul className="list-disc ml-5 space-y-1 text-sm">
+            {(simulation.plans?.freemium ?? []).map((f, i) => <li key={i}>{f}</li>)}
           </ul>
         </div>
-        <div className="bg-yellow-50 dark:bg-yellow-900 p-6 rounded-2xl shadow">
+        <div className="rounded-2xl p-6 bg-amber-900 text-amber-50 shadow">
           <h4 className="font-semibold mb-2">Subscription Plans</h4>
-          {(simulation.plans.subscription || []).map((s) => (
-            <div key={s.tier} className="mb-4">
-              <p className="font-bold">{s.tier} – {s.price}</p>
-              <ul className="list-disc ml-4 text-sm">
-                {s.features.map((f) => <li key={f}>{f}</li>)}
-              </ul>
-            </div>
-          ))}
+          <div className="space-y-3">
+            {(simulation.plans?.subscription ?? []).map((t, i) => (
+              <div key={i} className="rounded-xl bg-amber-800/60 p-3">
+                <div className="font-semibold">
+                  {t.tier} — <span className="opacity-90">{t.price}</span>
+                </div>
+                <ul className="list-disc ml-5 text-sm">
+                  {t.features.map((f, j) => <li key={j}>{f}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </section>
+
+      {/* CTA */}
+      {simulation.onboardingWillingnessQuestion && (
+        <div className="mt-8 flex flex-wrap gap-3">
+          <button className="rounded-xl bg-indigo-600 text-white px-5 py-3 font-semibold">
+            I’m ready to onboard
+          </button>
+          <button className="rounded-xl border px-5 py-3">
+            Book a walkthrough
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
