@@ -1,198 +1,158 @@
-// frontend/app/admin/health/page.tsx
 "use client";
 
+import useSWR from "swr";
 import { useEffect, useState } from "react";
+import SurveyAnalytics from "@/components/SurveyAnalytics";
 
-/** Inline tabs so this page is self-contained */
-function AdminTabs({ active }: { active: "health" | "metrics" }) {
-  const base =
-    "px-3 py-1.5 rounded-lg text-sm font-medium transition border";
-  const on = "bg-indigo-600 text-white border-indigo-600";
-  const off = "bg-white text-gray-700 hover:bg-gray-100 border-gray-200";
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+export default function AdminHealthPage() {
+  // server-side aggregate for service + pages + apis
+  const { data, error } = useSWR("/api/admin/health", fetcher, {
+    refreshInterval: 15000,
+  });
+
+  // client-side ping for OpenAI (keeps key on server)
+  const [openaiStatus, setOpenaiStatus] = useState<{
+    ok: boolean;
+    latency?: number;
+    error?: string;
+  }>({ ok: false });
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const t0 = performance.now();
+      try {
+        const res = await fetch("/api/admin/openai-check", { cache: "no-store" });
+        const body = await res.json();
+        const t1 = performance.now();
+        if (!mounted) return;
+        setOpenaiStatus({
+          ok: !!body?.ok,
+          latency: Math.round(t1 - t0),
+          error: body?.error,
+        });
+      } catch (err: any) {
+        if (!mounted) return;
+        setOpenaiStatus({ ok: false, error: err?.message });
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  if (error) return <div className="p-6 text-red-600">Failed to load health data</div>;
+  if (!data) return <div className="p-6">Loading health…</div>;
+
   return (
-    <div className="mb-5 flex gap-2">
-      <a href="/admin/health" className={`${base} ${active === "health" ? on : off}`}>
-        Health
-      </a>
-      <a href="/admin/metrics" className={`${base} ${active === "metrics" ? on : off}`}>
-        Metrics
-      </a>
-    </div>
+    <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+      <h1 className="text-3xl font-bold">System Health</h1>
+
+      {/* Services status */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <HealthCard title="Next.js API" status="OK" latency="— ms" ok={true} />
+        <HealthCard
+          title="MongoDB"
+          status={data.mongo?.status === "connected" ? "OK" : "Down"}
+          latency="—"
+          ok={data.mongo?.status === "connected"}
+          error={data.mongo?.error || undefined}
+        />
+        <HealthCard
+          title="Railway Backend"
+          status={data.railway?.status === "up" ? "OK" : "Down"}
+          latency="—"
+          ok={data.railway?.status === "up"}
+        />
+        <HealthCard
+          title="OpenAI API"
+          status={openaiStatus.ok ? "OK" : "Down"}
+          latency={openaiStatus.latency ? `${openaiStatus.latency} ms` : "—"}
+          ok={openaiStatus.ok}
+          error={openaiStatus.error}
+        />
+      </div>
+
+      {/* Pages status table */}
+      <section>
+        <h2 className="text-xl font-semibold mb-3">Pages</h2>
+        <table className="w-full border text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="p-2 border">Path</th>
+              <th className="p-2 border">Status</th>
+              <th className="p-2 border">Latency</th>
+              <th className="p-2 border">Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.pages?.map((p: any, idx: number) => (
+              <tr key={idx}>
+                <td className="border p-2">{p.path}</td>
+                <td className="border p-2">{p.ok ? "OK" : "Down"}</td>
+                <td className="border p-2">{p.latency} ms</td>
+                <td className="border p-2 text-gray-600">{p.error || ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {/* APIs status table */}
+      <section>
+        <h2 className="text-xl font-semibold mb-3">APIs</h2>
+        <table className="w-full border text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="p-2 border">Path</th>
+              <th className="p-2 border">Status</th>
+              <th className="p-2 border">Latency</th>
+              <th className="p-2 border">Error / Body (short)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.apis?.map((a: any, idx: number) => (
+              <tr key={idx}>
+                <td className="border p-2">{a.path}</td>
+                <td className="border p-2">{a.status}</td>
+                <td className="border p-2">{a.latency} ms</td>
+                <td className="border p-2 text-gray-600">
+                  {a.error ? a.error : JSON.stringify(a.body || "").slice(0, 180)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {/* Survey Analytics moved here from Investors */}
+      <section className="rounded-2xl border bg-white shadow-sm p-5">
+        <h2 className="text-xl font-semibold mb-4">Survey Analytics</h2>
+        <SurveyAnalytics />
+      </section>
+    </main>
   );
 }
 
-type PageCheck = { path: string; status: string; latency: number; error?: string };
-type ApiCheck  = { path: string; status: string; latency: number; bodyShort?: string };
-
-type HealthPayload = {
+function HealthCard({
+  title,
+  status,
+  latency,
+  ok,
+  error,
+}: {
+  title: string;
+  status: string;
+  latency: string;
   ok: boolean;
-  meta?: { node?: string; vercel?: boolean };
-  next?: { ok: boolean; latency: number };
-  mongo?: { ok: boolean; note?: string };
-  backend?: { ok: boolean; note?: string };
-  pages?: PageCheck[];
-  apis?: ApiCheck[];
-  lastUpdated?: string;
   error?: string;
-};
-
-export default function AdminHealthPage() {
-  const [data, setData] = useState<HealthPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      setLoading(true);
-      setErr(null);
-      const res = await fetch("/api/health", { cache: "no-store" });
-      const json = (await res.json()) as HealthPayload;
-      setData(json);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to load health");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
+}) {
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-3">System Health</h1>
-      <AdminTabs active="health" />
-
-      <div className="mb-4">
-        <button
-          onClick={load}
-          className="rounded-lg bg-black text-white px-4 py-2 hover:bg-gray-800"
-        >
-          Refresh
-        </button>
-      </div>
-
-      {loading && <p className="text-gray-500">Checking systems…</p>}
-      {err && <p className="text-red-600">Error: {err}</p>}
-
-      {data && (
-        <div className="space-y-8">
-          {/* Status cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Next.js API */}
-            <div className="rounded-xl border p-4">
-              <div className="font-semibold mb-1">Next.js API</div>
-              <div className="text-sm">
-                Status:{" "}
-                <span className={data.next?.ok ? "text-green-600" : "text-red-600"}>
-                  {data.next?.ok ? "OK" : "Down"}
-                </span>
-              </div>
-              <div className="text-sm">Latency: {data.next?.latency ?? "—"} ms</div>
-              <div className="text-xs text-gray-500">
-                node={data.meta?.node ?? "?"} vercel={String(data.meta?.vercel ?? false)}
-              </div>
-            </div>
-
-            {/* MongoDB */}
-            <div className="rounded-xl border p-4">
-              <div className="font-semibold mb-1">MongoDB</div>
-              <div className="text-sm">
-                Status:{" "}
-                <span className={data.mongo?.ok ? "text-green-600" : "text-red-600"}>
-                  {data.mongo?.ok ? "OK" : "Down"}
-                </span>
-              </div>
-              <div className="text-xs text-gray-500">{data.mongo?.note || "—"}</div>
-            </div>
-
-            {/* Railway / Backend */}
-            <div className="rounded-xl border p-4">
-              <div className="font-semibold mb-1">Railway Backend</div>
-              <div className="text-sm">
-                Status:{" "}
-                <span className={data.backend?.ok ? "text-green-600" : "text-red-600"}>
-                  {data.backend?.ok ? "OK" : "Down"}
-                </span>
-              </div>
-              <div className="text-xs text-gray-500">{data.backend?.note || "—"}</div>
-            </div>
-          </div>
-
-          {/* Pages table */}
-          <section>
-            <h2 className="font-semibold mb-2">Pages</h2>
-            <div className="overflow-auto rounded-xl border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left px-3 py-2">Path</th>
-                    <th className="text-left px-3 py-2">Status</th>
-                    <th className="text-left px-3 py-2">Latency</th>
-                    <th className="text-left px-3 py-2">Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.pages ?? []).map((p) => (
-                    <tr key={p.path} className="border-t">
-                      <td className="px-3 py-2">{p.path}</td>
-                      <td className="px-3 py-2">{p.status}</td>
-                      <td className="px-3 py-2">{p.latency} ms</td>
-                      <td className="px-3 py-2 text-gray-600">{p.error || ""}</td>
-                    </tr>
-                  ))}
-                  {(data.pages ?? []).length === 0 && (
-                    <tr>
-                      <td className="px-3 py-3 text-gray-500" colSpan={4}>
-                        No page checks reported.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* APIs table */}
-          <section>
-            <h2 className="font-semibold mb-2">APIs</h2>
-            <div className="overflow-auto rounded-xl border">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left px-3 py-2">Path</th>
-                    <th className="text-left px-3 py-2">Status</th>
-                    <th className="text-left px-3 py-2">Latency</th>
-                    <th className="text-left px-3 py-2">Error / Body (short)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.apis ?? []).map((a) => (
-                    <tr key={a.path} className="border-t">
-                      <td className="px-3 py-2">{a.path}</td>
-                      <td className="px-3 py-2">{a.status}</td>
-                      <td className="px-3 py-2">{a.latency} ms</td>
-                      <td className="px-3 py-2 text-gray-600">{a.bodyShort || ""}</td>
-                    </tr>
-                  ))}
-                  {(data.apis ?? []).length === 0 && (
-                    <tr>
-                      <td className="px-3 py-3 text-gray-500" colSpan={4}>
-                        No API checks reported.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <div className="text-xs text-gray-500">
-            Last updated: {data.lastUpdated || "—"}
-          </div>
-        </div>
-      )}
+    <div className="rounded-xl border p-4 shadow-sm bg-white">
+      <h3 className="font-semibold">{title}</h3>
+      <p className={ok ? "text-green-600" : "text-red-600"}>Status: {status}</p>
+      <p className="text-sm text-gray-600">Latency: {latency}</p>
+      {error && <p className="text-xs text-red-500 mt-1">Error: {error}</p>}
     </div>
   );
 }
