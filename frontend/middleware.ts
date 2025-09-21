@@ -9,7 +9,7 @@ import {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Protect /investors/dashboard
+  // Protect investor dashboard
   if (pathname.startsWith("/investors/dashboard")) {
     const token = req.cookies.get(INVESTOR_COOKIE)?.value;
     const payload = verifyToken(token);
@@ -21,7 +21,7 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // Protect /admin (except /admin/login)
+  // Protect /admin (everything except login page)
   if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
     const token = req.cookies.get(ADMIN_COOKIE)?.value;
     const payload = verifyToken(token);

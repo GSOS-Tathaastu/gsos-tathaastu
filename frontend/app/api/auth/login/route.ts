@@ -9,6 +9,7 @@ import {
 export async function POST(req: Request) {
   try {
     const { area, password } = await req.json();
+
     if (area !== "admin" && area !== "investor") {
       return NextResponse.json(
         { ok: false, error: "Invalid area" },

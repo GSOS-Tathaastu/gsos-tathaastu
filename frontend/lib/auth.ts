@@ -53,3 +53,27 @@ export function verifyToken(token?: string | null): any | null {
     return null;
   }
 }
+
+// ---- Backward compatibility exports ----
+export function getAcceptedInvestorKey(): string | null {
+  return getExpectedPassword("investor");
+}
+
+const LEGACY_INVESTOR_COOKIE = "gsos_investor_session";
+
+export const investorCookie = {
+  name: LEGACY_INVESTOR_COOKIE,
+  serialize(value: string, maxAgeSec = 3600) {
+    const expires = new Date(Date.now() + maxAgeSec * 1000).toUTCString();
+    return `${LEGACY_INVESTOR_COOKIE}=${value}; Path=/; Expires=${expires}; Max-Age=${maxAgeSec}; HttpOnly; SameSite=Lax`;
+  },
+  parseCookieHeader(header: string | null | undefined): Record<string, string> {
+    if (!header) return {};
+    return header.split(/;\s*/).reduce((acc: any, part) => {
+      const [k, v] = part.split("=");
+      if (!k) return acc;
+      acc[k] = v;
+      return acc;
+    }, {});
+  },
+};
