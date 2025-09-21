@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import GsosAnimation from "@/components/GsosAnimation"; // ← keep this import
-// (TradeKpiSection removed per your request)
 
 /* -------------------------
    Stakeholder Stories Tabs
@@ -87,16 +86,10 @@ export default function HomePage() {
           </p>
           <div className="flex justify-center gap-4">
             <Link
-              href="/start"
+              href="/survey"
               className="rounded-xl bg-indigo-600 px-6 py-3 text-white font-semibold hover:bg-indigo-700"
             >
               Start Survey
-            </Link>
-            <Link
-              href="/investors"
-              className="rounded-xl border px-6 py-3 text-gray-700 hover:bg-gray-100"
-            >
-              Investor Brief
             </Link>
           </div>
         </section>

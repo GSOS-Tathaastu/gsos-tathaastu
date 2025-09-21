@@ -1,41 +1,12 @@
-import { NextResponse } from "next/server";
+// Pass-through middleware: no route protection.
 import type { NextRequest } from "next/server";
-import {
-  ADMIN_COOKIE,
-  INVESTOR_COOKIE,
-  verifyToken,
-} from "@/lib/auth";
+import { NextResponse } from "next/server";
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // Protect investor dashboard
-  if (pathname.startsWith("/investors/dashboard")) {
-    const token = req.cookies.get(INVESTOR_COOKIE)?.value;
-    const payload = verifyToken(token);
-    if (!payload || payload.area !== "investor") {
-      const url = req.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("area", "investor");
-      return NextResponse.redirect(url);
-    }
-  }
-
-  // Protect /admin (everything except login page)
-  if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
-    const token = req.cookies.get(ADMIN_COOKIE)?.value;
-    const payload = verifyToken(token);
-    if (!payload || payload.area !== "admin") {
-      const url = req.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("area", "admin");
-      return NextResponse.redirect(url);
-    }
-  }
-
+export function middleware(_req: NextRequest) {
   return NextResponse.next();
 }
 
+// Empty matcher = nothing intercepted.
 export const config = {
-  matcher: ["/investors/dashboard/:path*", "/admin/:path*"],
+  matcher: [],
 };
