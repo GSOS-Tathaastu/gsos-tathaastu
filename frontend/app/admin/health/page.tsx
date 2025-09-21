@@ -22,10 +22,10 @@ export default function AdminHealthPage() {
     error?: string;
   }>({ ok: false });
 
-  // Poll /api/admin/health every 15s
+  // Poll /api/admin/health every 15s (browser timers only)
   useEffect(() => {
     let mounted = true;
-    let timer: NodeJS.Timer | null = null;
+    let timer: number | undefined;
 
     async function load() {
       try {
@@ -42,10 +42,11 @@ export default function AdminHealthPage() {
     }
 
     load();
-    timer = setInterval(load, 15000);
+    timer = window.setInterval(load, 15000);
+
     return () => {
       mounted = false;
-      if (timer) clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
   }, []);
 
