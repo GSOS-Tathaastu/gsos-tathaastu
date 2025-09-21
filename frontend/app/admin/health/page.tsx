@@ -1,24 +1,55 @@
 "use client";
 
-import useSWR from "swr";
 import { useEffect, useState } from "react";
 import SurveyAnalytics from "@/components/SurveyAnalytics";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+type HealthResp = {
+  ok: boolean;
+  mongo?: { status?: string; error?: string | null };
+  railway?: { status?: string };
+  pages?: Array<{ path: string; ok: boolean; latency: number; error?: string }>;
+  apis?: Array<{ path: string; status: string; latency: number; error?: string; body?: any }>;
+};
 
 export default function AdminHealthPage() {
-  // server-side aggregate for service + pages + apis
-  const { data, error } = useSWR("/api/admin/health", fetcher, {
-    refreshInterval: 15000,
-  });
+  const [data, setData] = useState<HealthResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  // client-side ping for OpenAI (keeps key on server)
   const [openaiStatus, setOpenaiStatus] = useState<{
     ok: boolean;
     latency?: number;
     error?: string;
   }>({ ok: false });
 
+  // Poll /api/admin/health every 15s
+  useEffect(() => {
+    let mounted = true;
+    let timer: NodeJS.Timer | null = null;
+
+    async function load() {
+      try {
+        setErr(null);
+        const r = await fetch("/api/admin/health", { cache: "no-store" });
+        if (!r.ok) throw new Error(`health ${r.status}`);
+        const j: HealthResp = await r.json();
+        if (mounted) setData(j);
+      } catch (e: any) {
+        if (mounted) setErr(e?.message || "Failed to load");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    load();
+    timer = setInterval(load, 15000);
+    return () => {
+      mounted = false;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+
+  // Ping OpenAI once on mount
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -33,16 +64,19 @@ export default function AdminHealthPage() {
           latency: Math.round(t1 - t0),
           error: body?.error,
         });
-      } catch (err: any) {
+      } catch (e: any) {
         if (!mounted) return;
-        setOpenaiStatus({ ok: false, error: err?.message });
+        setOpenaiStatus({ ok: false, error: e?.message });
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  if (error) return <div className="p-6 text-red-600">Failed to load health data</div>;
-  if (!data) return <div className="p-6">Loading health…</div>;
+  if (loading) return <div className="p-6">Loading health…</div>;
+  if (err) return <div className="p-6 text-red-600">Error: {err}</div>;
+  if (!data) return <div className="p-6">No data.</div>;
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-10 space-y-10">
@@ -50,7 +84,7 @@ export default function AdminHealthPage() {
 
       {/* Services status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <HealthCard title="Next.js API" status="OK" latency="— ms" ok={true} />
+        <HealthCard title="Next.js API" status="OK" latency="—" ok={true} />
         <HealthCard
           title="MongoDB"
           status={data.mongo?.status === "connected" ? "OK" : "Down"}
@@ -74,58 +108,66 @@ export default function AdminHealthPage() {
       </div>
 
       {/* Pages status table */}
-      <section>
-        <h2 className="text-xl font-semibold mb-3">Pages</h2>
-        <table className="w-full border text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="p-2 border">Path</th>
-              <th className="p-2 border">Status</th>
-              <th className="p-2 border">Latency</th>
-              <th className="p-2 border">Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.pages?.map((p: any, idx: number) => (
-              <tr key={idx}>
-                <td className="border p-2">{p.path}</td>
-                <td className="border p-2">{p.ok ? "OK" : "Down"}</td>
-                <td className="border p-2">{p.latency} ms</td>
-                <td className="border p-2 text-gray-600">{p.error || ""}</td>
+      {!!data.pages?.length && (
+        <section>
+          <h2 className="text-xl font-semibold mb-3">Pages</h2>
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 border text-left">Path</th>
+                <th className="p-2 border">Status</th>
+                <th className="p-2 border">Latency</th>
+                <th className="p-2 border">Error</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+              {data.pages.map((p, idx) => (
+                <tr key={idx}>
+                  <td className="border p-2">{p.path}</td>
+                  <td className={`border p-2 ${p.ok ? "text-green-700" : "text-red-700"}`}>
+                    {p.ok ? "OK" : "Down"}
+                  </td>
+                  <td className="border p-2">{p.latency} ms</td>
+                  <td className="border p-2 text-gray-600">{p.error || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {/* APIs status table */}
-      <section>
-        <h2 className="text-xl font-semibold mb-3">APIs</h2>
-        <table className="w-full border text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="p-2 border">Path</th>
-              <th className="p-2 border">Status</th>
-              <th className="p-2 border">Latency</th>
-              <th className="p-2 border">Error / Body (short)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.apis?.map((a: any, idx: number) => (
-              <tr key={idx}>
-                <td className="border p-2">{a.path}</td>
-                <td className="border p-2">{a.status}</td>
-                <td className="border p-2">{a.latency} ms</td>
-                <td className="border p-2 text-gray-600">
-                  {a.error ? a.error : JSON.stringify(a.body || "").slice(0, 180)}
-                </td>
+      {!!data.apis?.length && (
+        <section>
+          <h2 className="text-xl font-semibold mb-3">APIs</h2>
+          <table className="w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 border text-left">Path</th>
+                <th className="p-2 border">Status</th>
+                <th className="p-2 border">Latency</th>
+                <th className="p-2 border">Error / Body (short)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+              {data.apis.map((a, idx) => (
+                <tr key={idx}>
+                  <td className="border p-2">{a.path}</td>
+                  <td className={`border p-2 ${a.status === "OK" ? "text-green-700" : "text-red-700"}`}>
+                    {a.status}
+                  </td>
+                  <td className="border p-2">{a.latency} ms</td>
+                  <td className="border p-2 text-gray-600">
+                    {a.error ? a.error : JSON.stringify(a.body || "").slice(0, 180)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
-      {/* Survey Analytics moved here from Investors */}
+      {/* Survey Analytics */}
       <section className="rounded-2xl border bg-white shadow-sm p-5">
         <h2 className="text-xl font-semibold mb-4">Survey Analytics</h2>
         <SurveyAnalytics />
